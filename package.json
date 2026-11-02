@@ -1,0 +1,48 @@
+{
+  "name": "stock-bar",
+  "version": "0.11.3",
+  "private": true,
+  "description": "Windows floating stock bar with Futu cloud login and optional local OpenD",
+  "main": "dist-electron/main/main.js",
+  "scripts": {
+    "build": "tsc --noEmit -p tsconfig.json && tsc -p tsconfig.electron.json && vite build && powershell.exe -NoProfile -File scripts/build-native.ps1",
+    "start": "powershell.exe -NoProfile -File scripts/open-probe.ps1",
+    "setup:electron": "node node_modules/electron/install.js",
+    "setup:akshare": "powershell.exe -NoProfile -File scripts/setup-akshare.ps1",
+    "sync:securities": "tsc -p tsconfig.electron.json && node scripts/sync-securities.cjs",
+    "probe": "electron . --probe",
+    "test": "vitest run",
+    "test:ui": "powershell.exe -NoProfile -File scripts/check-ui.ps1",
+    "test:layout": "powershell.exe -NoProfile -File scripts/check-layout.ps1",
+    "test:panel": "powershell.exe -NoProfile -File scripts/check-panel.ps1",
+    "test:shortcuts": "powershell.exe -NoProfile -File scripts/check-shortcuts.ps1",
+    "test:search": "powershell.exe -NoProfile -File scripts/check-search.ps1",
+    "test:fullscreen": "powershell.exe -NoProfile -File scripts/check-fullscreen.ps1",
+    "test:topmost": "powershell.exe -NoProfile -File scripts/check-topmost.ps1",
+    "test:recovery": "powershell.exe -NoProfile -File scripts/check-recovery.ps1",
+    "package:win": "npm run build && node scripts/package-win.cjs"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "dependencies": {
+    "futu-api": "10.11.7108",
+    "opencc-js": "1.4.2",
+    "pinyin-pro": "3.29.5",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "undici": "7.30.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/ws": "8.18.2",
+    "@vitejs/plugin-react": "6.1.2",
+    "electron": "45.0.0",
+    "typescript": "7.0.2",
+    "vite": "8.3.5",
+    "vitest": "5.0.5",
+    "ws": "8.22.0"
+  }
+}
