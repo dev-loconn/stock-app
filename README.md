@@ -26,7 +26,9 @@
 
 0.11.3 将悬浮条和自选行情面板的价格改为最多三位小数，例如 81.1258 显示为 81.126；涨跌幅继续保留两位小数，行情原始精度及计算不变。
 
-便携使用：完整解压 release/stock-bar-0.11.3-win32-x64.zip 后，双击 stock-bar.exe；无需 Node.js 或 npm。在设置中点击“登录富途”，通过系统浏览器授权后自动连接。详情见 [便携使用说明](docs/portable-guide.txt)。
+0.11.4 将行情价格统一为固定两位小数；美股杠杆／反向 ETF 在悬浮条显示纯代码，通过名称特征和代码名单识别，覆盖 SOXL、SOXS、TQQQ。面板和设置保留名称。规则、范围及验证结果见[显示设计](docs/etf-ticker-display-design.md)。
+
+便携使用：完整解压 release/stock-bar-0.11.4-win32-x64.zip 后，双击 stock-bar.exe；无需 Node.js 或 npm。在设置中点击“登录富途”，通过系统浏览器授权后自动连接。详情见 [便携使用说明](docs/portable-guide.txt)。
 
 ## 运行
 

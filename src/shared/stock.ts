@@ -121,7 +121,7 @@ export function barWidth(availableWidth: number, securityWidth: number, securiti
   return Math.min(availableWidth, securities === 0 ? Math.max(360, securityWidth + BAR_CHROME_WIDTH) : slots * securityWidth + BAR_CHROME_WIDTH);
 }
 export function formatPrice(quote?: DisplayQuote): string {
-  return quote ? quote.price.toLocaleString('en-US', { useGrouping: false, minimumFractionDigits: Math.min(2, quote.priceDecimals), maximumFractionDigits: Math.min(3, quote.priceDecimals) }) : '—';
+  return quote ? quote.price.toLocaleString('en-US', { useGrouping: false, minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
 }
 export function formatChange(value?: number): string {
   if (value === undefined || !Number.isFinite(value)) return '—';

@@ -8,7 +8,14 @@ import { DEFAULT_PREFERENCES } from '../src/shared/stock';
 import { createGateway } from './gateway';
 
 it.skipIf(process.env.STOCK_BAR_LAYOUT_CHECK !== '1')('validates fixed widths, pagination and the live overview in native Electron', async () => {
-  const gateway = await createGateway();
+  const gateway = await createGateway({ directoryItems: [
+    { symbol: 'US.SOXL', name: '三倍做多半导体测试', securityType: 4 },
+    { symbol: 'US.SOXS', name: '不含方向特征的测试名称', securityType: 4 },
+    { symbol: 'US.TQQQ', name: '三倍做多纳指测试', securityType: 4 },
+    { symbol: 'US.DISPLAYTEST', name: 'Daily 2x Test ETF', securityType: 4 },
+    { symbol: 'US.DISPLAYPLAIN', name: '普通指数基金测试', securityType: 4 },
+    { symbol: 'HK.09999', name: '三倍做多港股测试', securityType: 4 },
+  ] });
   const directory = resolve(process.env.STOCK_BAR_CHECK_OUTPUT || 'artifacts/layout-fixture');
   const profile = resolve(directory, 'profile');
   const watchlist = Array.from({ length: 10 }, (_, index) => ({ symbol: `HK.${String(index + 1).padStart(5, '0')}`,
@@ -21,7 +28,8 @@ it.skipIf(process.env.STOCK_BAR_LAYOUT_CHECK !== '1')('validates fixed widths, p
   } }));
   const control = createServer((request, response) => {
     const url = new URL(request.url || '/', 'http://127.0.0.1');
-    if (url.pathname === '/push') gateway.pushQuotes(watchlist.map(item => ({ market: 1, code: item.symbol.slice(3) })), Number(url.searchParams.get('price')));
+    if (url.pathname === '/push') gateway.pushQuotes((url.searchParams.get('symbols')?.split(',') || watchlist.map(item => item.symbol))
+      .map(symbol => ({ market: symbol.startsWith('US.') ? 11 : 1, code: symbol.slice(3) })), Number(url.searchParams.get('price')));
     else if (url.pathname === '/drop') { gateway.setAccepting(false); gateway.dropConnections(); }
     else if (url.pathname === '/restore') gateway.setAccepting(true);
     else response.statusCode = 404;
@@ -30,7 +38,7 @@ it.skipIf(process.env.STOCK_BAR_LAYOUT_CHECK !== '1')('validates fixed widths, p
   await new Promise<void>(done => control.listen(0, '127.0.0.1', done));
   const executable = process.env.STOCK_BAR_CHECK_EXECUTABLE;
   const child = spawn(executable || resolve('node_modules/electron/dist/electron.exe'), executable ? ['--layout-check'] : ['.', '--layout-check'], {
-    cwd: resolve('.'), windowsHide: true, env: { ...process.env, STOCK_BAR_TEST_PROFILE: profile,
+    cwd: resolve('.'), windowsHide: true, env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined, STOCK_BAR_TEST_PROFILE: profile,
       STOCK_BAR_CHECK_OUTPUT: directory, STOCK_BAR_FIXTURE_CONTROL: `http://127.0.0.1:${(control.address() as AddressInfo).port}` }, stdio: ['ignore', 'pipe', 'pipe'],
   });
   let output = '';

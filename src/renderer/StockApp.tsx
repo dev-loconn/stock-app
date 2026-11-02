@@ -6,6 +6,7 @@ import { SecuritySearchPanel } from './SecuritySearch';
 import { Watchlist } from './Watchlist';
 import { panelMetrics } from '../shared/panel-layout';
 import { ShortcutSettings } from './ShortcutSettings';
+import { barSecurityTitle } from '../shared/security-display';
 
 declare global { interface Window { stockBar: StockBridge } }
 function useStock() {
@@ -58,7 +59,7 @@ function Bar({ state }: { state?: StockState }) {
     <div className="bar-quotes">
       {!rows.length && <button className="empty-bar" onClick={() => window.stockBar.openSettings()}>{preferences.watchlist.length ? '请选择展示证券' : '添加自选证券，开始查看行情'}</button>}
       {rows.slice(current * count, (current + 1) * count).map(row => <div className="quote-tile" key={row.symbol}>
-        <div className="quote-line"><span className="stock-name">{row.name}</span><strong className={color(row.quote?.changePercent)}>{formatPrice(row.quote)}</strong></div>
+        <div className="quote-line"><span className="stock-name">{barSecurityTitle(row)}</span><strong className={color(row.quote?.changePercent)}>{formatPrice(row.quote)}</strong></div>
         <div className="quote-line subline"><span className="market-tag" title={quoteStatus(row)}>{quoteStatus(row)}</span>
           <span className={color(row.quote?.changePercent)}>{formatChange(row.quote?.changePercent)}</span></div>
       </div>)}

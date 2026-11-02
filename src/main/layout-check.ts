@@ -20,6 +20,11 @@ export async function runLayoutCheck(bar: BrowserWindow, service: QuoteService,
   };
   const evaluate = (window: BrowserWindow, script: string) => window.webContents.executeJavaScript(script);
   const screenshot = async (window: BrowserWindow, name: string) => {
+    // Hidden windows can retain an older compositor frame despite current DOM state.
+    window.webContents.invalidate();
+    await window.webContents.capturePage();
+    await evaluate(window, `new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done)))`);
+    window.webContents.invalidate();
     await new Promise(done => setTimeout(done, 150));
     await writeFile(resolve(directory, name), (await window.webContents.capturePage()).toPNG());
   };
@@ -100,7 +105,7 @@ export async function runLayoutCheck(bar: BrowserWindow, service: QuoteService,
   checks.push(...await runBarSelectionCheck(settings, bar, overview, service));
   const saveList = async (items: typeof originalList) => {
     const result = await evaluate(settings, `window.stockBar.setWatchlist(${JSON.stringify(items)})`);
-    assert(result.ok, `save watchlist of ${items.length} securities`);
+    assert(result.ok, `save watchlist of ${items.length} securities${result.message ? ': ' + result.message : ''}`);
   };
   await saveList(originalList.slice(0, 2));
   await until(async () => Math.abs(bar.getBounds().width - (2 * 180 + BAR_CHROME_WIDTH)) <= 2 && await evaluate(overview, `document.querySelectorAll('tbody tr').length === 2`), '删除后布局同步');
@@ -110,6 +115,33 @@ export async function runLayoutCheck(bar: BrowserWindow, service: QuoteService,
   await screenshot(overview, 'overview-empty.png');
   await saveList(originalList);
   await until(async () => await evaluate(overview, `document.querySelectorAll('tbody tr').length === 10`), '恢复自选');
+  // Exercise real React rendering through verified fixture securities, without changing their names.
+  const displaySymbols = ['US.SOXL', 'US.SOXS', 'US.TQQQ', 'US.DISPLAYTEST', 'US.DISPLAYPLAIN', 'HK.09999'];
+  await until(() => service.state(false).connection === 'connected', '核验前恢复夹具连接');
+  await saveList(displaySymbols.map(symbol => ({ symbol, name: 'must be replaced by verified fixture metadata', securityType: 4, showInBar: true })));
+  await until(() => service.state(false).rows.length === 6 && service.state(false).rows.every(row => Boolean(row.quote)), '代码显示夹具行情');
+  await until(() => evaluate(bar, `JSON.stringify(Array.from(document.querySelectorAll('.stock-name')).map(node=>node.textContent))==='["SOXL","SOXS","TQQQ"]'`), 'ETF 代码标题');
+  assert(await evaluate(bar, `!document.querySelector('.stock-name[title]')`), 'ETF ticker titles add no hover tooltip');
+  await until(() => evaluate(overview, `document.querySelectorAll('tbody tr').length===6 && document.querySelector('tbody tr[data-symbol="US.SOXS"] .overview-name').textContent==='不含方向特征的测试名称'`), '面板保留证券名称');
+  assert(await evaluate(settings, `document.querySelector('.watchlist li[data-symbol="US.SOXL"]').textContent.includes('三倍做多半导体测试')`), 'settings retain the verified security name while the bar shows its ticker');
+  await command('/push?price=80.793&symbols=' + displaySymbols.join(','));
+  await until(() => evaluate(bar, `Array.from(document.querySelectorAll('.quote-line strong')).every(node=>node.textContent==='80.79')`), '悬浮条两位小数');
+  await until(() => evaluate(overview, `Array.from(document.querySelectorAll('.overview-price')).every(node=>node.textContent==='80.79')`), '面板两位小数');
+  assert(service.state(false).rows.every(row => row.quote?.price === 80.793), 'both views round to two decimals while retaining the original quote price');
+  assert(true, 'SOXL, SOXS and TQQQ render as tickers even when translated names lack directional keywords');
+  await screenshot(bar, 'etf-tickers.png');
+  await screenshot(overview, 'etf-names-panel.png');
+  await new Promise(done => setTimeout(done, 180));
+  await evaluate(bar, `document.querySelector('.stock-bar').dispatchEvent(new WheelEvent('wheel',{deltaY:100,bubbles:true}))`);
+  await until(() => evaluate(bar, `JSON.stringify(Array.from(document.querySelectorAll('.stock-name')).map(node=>node.textContent))==='["DISPLAYTEST","普通指数基金测试","三倍做多港股测试"]'`), '名称识别与适用范围');
+  assert(true, 'other US directional ETFs use tickers while ordinary ETFs and HK ETFs retain their names');
+  await screenshot(bar, 'etf-name-rules.png');
+  await new Promise(done => setTimeout(done, 180));
+  await evaluate(bar, `document.querySelector('.stock-bar').dispatchEvent(new WheelEvent('wheel',{deltaY:-100,bubbles:true}))`);
+  await until(() => evaluate(bar, `document.querySelector('.stock-name').textContent==='SOXL'`), '代码页恢复');
+  await saveAppearance(140, 20);
+  assert(await evaluate(bar, `Array.from(document.querySelectorAll('.stock-name')).every(node=>node.scrollWidth<=node.clientWidth+1) && document.querySelector('.bar-tools').getBoundingClientRect().right<=innerWidth+1`), 'short ETF tickers fit at 140px with the largest font and usable controls');
+  await screenshot(bar, 'etf-tickers-narrow.png');
   const report = { passed: true, appVersion: app.getVersion(), executable: process.execPath,
     mode: 'protocol fixture only; isolated profile; hidden native Electron windows', checks };
   await writeFile(resolve(directory, 'result.json'), JSON.stringify(report, null, 2));
