@@ -345,7 +345,10 @@ if (!app.requestSingleInstanceLock()) {
       },
       changed: open => { if (!bar.isDestroyed()) bar.webContents.send('stock:panel-open', open); }, hidden: layoutCheck });
     bar.once('ready-to-show', () => {
-      if (check && !fullscreenCheck) { if (visibleCheck) visibility.setReady(); return; }
+      if (check && !fullscreenCheck && !process.argv.includes('--topmost-check')) {
+        if (visibleCheck) visibility.setReady();
+        return;
+      }
       // Wait for the first native sample to avoid flashing over an existing fullscreen app.
       fullscreenWatcher = new FullscreenWatcher(join(__dirname, '../native/fullscreen-monitor.exe'), bar.getNativeWindowHandle(), sample => {
         fullscreenHealth = 'active'; visibility.setSample(sample); clearTimeout(fullscreenReadyTimer); visibility.setReady();

@@ -1,4 +1,4 @@
-param([string]$Executable)
+param([string]$Executable, [switch]$Taskbar)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type @'
@@ -10,6 +10,7 @@ public static class TopmostLossProbe {
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint p);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out Rect r);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindow(string kind, string title);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int w, int hgt, uint flags);
@@ -46,6 +47,28 @@ try {
   [void][TopmostLossProbe]::SetForegroundWindow($form.Handle)
   $rect = New-Object TopmostLossProbe+Rect
   [void][TopmostLossProbe]::GetWindowRect($bar,[ref]$rect)
+  if ($Taskbar) {
+    $taskbarWindow = [TopmostLossProbe]::FindWindow('Shell_TrayWnd', $null)
+    $taskbarRect = New-Object TopmostLossProbe+Rect
+    if (-not [TopmostLossProbe]::GetWindowRect($taskbarWindow, [ref]$taskbarRect)) { throw 'Taskbar not found' }
+    $x = [int](($taskbarRect.l + $taskbarRect.r - ($rect.r - $rect.l)) / 2)
+    $y = [int](($taskbarRect.t + $taskbarRect.b - ($rect.b - $rect.t)) / 2)
+    if (-not [TopmostLossProbe]::SetWindowPos($bar, [IntPtr](-1), $x, $y, 0, 0, 0x11)) { throw 'Could not place bar over taskbar' }
+    $point = New-Object TopmostLossProbe+Point
+    $point.x = [int](($taskbarRect.l + $taskbarRect.r) / 2)
+    $point.y = [int](($taskbarRect.t + $taskbarRect.b) / 2)
+    if ([TopmostLossProbe]::GetAncestor([TopmostLossProbe]::WindowFromPoint($point), 2) -ne $bar) { throw 'Bar was not initially above the taskbar' }
+    if (-not [TopmostLossProbe]::SetWindowPos($taskbarWindow, [IntPtr](-1), 0, 0, 0, 0, 0x13)) { throw 'Could not raise taskbar' }
+    $hit = [TopmostLossProbe]::GetAncestor([TopmostLossProbe]::WindowFromPoint($point), 2)
+    if ($hit -ne $taskbarWindow -or ([TopmostLossProbe]::GetWindowLong($bar,-20).ToInt64() -band 8) -eq 0) { throw 'Injection did not obscure the still-topmost bar with the taskbar' }
+    $foregroundBefore = [TopmostLossProbe]::GetForegroundWindow()
+    Start-Sleep -Seconds 2
+    $recovered = [TopmostLossProbe]::GetAncestor([TopmostLossProbe]::WindowFromPoint($point), 2) -eq $bar
+    $focusUnchanged = [TopmostLossProbe]::GetForegroundWindow() -eq $foregroundBefore
+    @{ obscuredWhileTopmost = $true; recoveredAboveTaskbar = $recovered; focusUnchanged = $focusUnchanged } | ConvertTo-Json -Compress
+    if (-not $recovered -or -not $focusUnchanged) { exit 1 }
+    return
+  }
   $point = New-Object TopmostLossProbe+Point
   $point.x = [int](($rect.l + $rect.r) / 2); $point.y = [int](($rect.t + $rect.b) / 2)
   $form.WindowState = [System.Windows.Forms.FormWindowState]::Normal

@@ -21,25 +21,40 @@ internal static class FullscreenMonitor {
     [DllImport("user32.dll")] static extern IntPtr MonitorFromWindow(IntPtr window, uint flags);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
     [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr window, out Rect bounds);
+    [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] static extern IntPtr GetWindowLongPtr(IntPtr window, int index);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr window, StringBuilder name, int length);
     [DllImport("dwmapi.dll", EntryPoint = "DwmGetWindowAttribute")] static extern int GetFrame(IntPtr window, int attribute, out Rect bounds, int size);
     [DllImport("dwmapi.dll", EntryPoint = "DwmGetWindowAttribute")] static extern int GetCloaked(IntPtr window, int attribute, out int value, int size);
 
-    static List<string> FindFullscreen(uint excludedProcess) {
+    static bool Overlaps(Rect a, Rect b) {
+        return a.Left < b.Right && a.Right > b.Left && a.Top < b.Bottom && a.Bottom > b.Top;
+    }
+
+    static List<string> FindFullscreen(uint excludedProcess, IntPtr target, out bool taskbarAbove) {
         var seen = new HashSet<IntPtr>();
         var fullscreen = new List<string>();
+        Rect targetBounds;
+        bool checkTaskbar = GetWindowRect(target, out targetBounds) && IsWindowVisible(target);
+        bool overlapsTaskbarAbove = false;
         EnumWindows(delegate(IntPtr window, IntPtr data) {
+            if (window == target) checkTaskbar = false;
             uint pid; GetWindowThreadProcessId(window, out pid);
             if (pid == excludedProcess || !IsWindowVisible(window) || IsIconic(window)) return true;
             int cloaked;
             if (GetCloaked(window, 14, out cloaked, 4) == 0 && cloaked != 0) return true;
-            long extended = GetWindowLongPtr(window, -20).ToInt64();
-            if ((extended & (0x80L | 0x08000000L)) != 0) return true; // tool/no-activate overlays
             var className = new StringBuilder(256); GetClassName(window, className, className.Capacity);
             string kind = className.ToString();
-            if (kind == "Progman" || kind == "WorkerW" || kind == "Shell_TrayWnd" || kind == "Shell_SecondaryTrayWnd") return true;
+            if (kind == "Shell_TrayWnd" || kind == "Shell_SecondaryTrayWnd") {
+                Rect taskbarBounds;
+                if (checkTaskbar && GetWindowRect(window, out taskbarBounds) && Overlaps(targetBounds, taskbarBounds))
+                    overlapsTaskbarAbove = true;
+                return true;
+            }
+            if (kind == "Progman" || kind == "WorkerW") return true;
+            long extended = GetWindowLongPtr(window, -20).ToInt64();
+            if ((extended & (0x80L | 0x08000000L)) != 0) return true; // tool/no-activate overlays
             Rect bounds;
             if (GetFrame(window, 9, out bounds, Marshal.SizeOf(typeof(Rect))) != 0 && !GetWindowRect(window, out bounds)) return true;
             if (bounds.Right <= bounds.Left || bounds.Bottom <= bounds.Top) return true;
@@ -61,6 +76,7 @@ internal static class FullscreenMonitor {
             if (covers && !IsZoomed(window) && (style & 0x00C00000L) == 0) fullscreen.Add(monitor.ToInt64().ToString());
             return true;
         }, IntPtr.Zero);
+        taskbarAbove = overlapsTaskbarAbove;
         return fullscreen;
     }
 
@@ -72,8 +88,14 @@ internal static class FullscreenMonitor {
             var parent = Process.GetProcessById(int.Parse(args[1]));
             SetThreadDpiAwarenessContext(new IntPtr(-4)); // per-monitor-aware v2, physical coordinates
             while (!parent.HasExited && IsWindow(target)) {
-                var monitors = FindFullscreen((uint)parent.Id);
+                bool taskbarAbove;
+                var monitors = FindFullscreen((uint)parent.Id, target, out taskbarAbove);
                 string current = MonitorFromWindow(target, 2).ToInt64().ToString();
+                // The taskbar can move ahead of the bar without clearing WS_EX_TOPMOST.
+                if (taskbarAbove && !monitors.Contains(current) && IsWindowVisible(target)) {
+                    const uint noMove = 0x2, noSize = 0x1, noActivate = 0x10, asyncWindowPos = 0x4000;
+                    SetWindowPos(target, new IntPtr(-1), 0, 0, 0, 0, noMove | noSize | noActivate | asyncWindowPos);
+                }
                 Console.WriteLine("{\"monitor\":\"" + current + "\",\"fullscreenMonitors\":[" +
                     (monitors.Count == 0 ? "" : "\"" + string.Join("\",\"", monitors.ToArray()) + "\"") + "]}");
                 Console.Out.Flush();
