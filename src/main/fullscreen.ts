@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { parseFullscreenSample, type FullscreenSample } from './visibility';
 
-/** One small native process; no PowerShell, hooks, or native Node ABI dependency at runtime. */
+/** One small native process; no PowerShell or native Node ABI dependency at runtime. */
 export class FullscreenWatcher {
   private child?: ChildProcess;
   private retry?: ReturnType<typeof setTimeout>;
