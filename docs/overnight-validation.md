@@ -10,7 +10,7 @@
 
 云端使用带 `time` 和 `period_type=OVERNIGHT` 的逐笔 REST，接入已有 `TICKER` 推送；按该时段响应的 `last_close` 绑定基准。明确标记时段的成交按源标签处理；未带标签的推送需同时符合源市场状态和 20:00～04:00 的时间范围。过期夜盘、未来时间、证券或时段不匹配的数据不采用。旧 REST 可补充本轮基准，不覆盖较新的推送价格，也不复用前一轮夜盘的基准。
 
-OpenD 备用使用 `Session.OVERNIGHT=4`；从盘前/盘后的 `Session.ETH=2` 切换时先取消旧逐笔订阅，避免一直保留不包含夜盘的 ETH 订阅。缺权限时保留本次运行旧价，下一轮重试。
+OpenD 夜盘逐笔使用 `Session.ALL=3`，按成交源时间筛选夜盘数据。富途的[行情订阅接口](https://openapi.futunn.com/futu-api-doc/quote/sub.html)不接受 `Session.OVERNIGHT=4`。从盘前/盘后的 `Session.ETH=2` 切换时先取消旧逐笔订阅，避免一直保留不包含夜盘的 ETH 订阅。缺权限时保留本次运行旧价，下一轮重试。
 
 ## 真实 SOXL 响应
 

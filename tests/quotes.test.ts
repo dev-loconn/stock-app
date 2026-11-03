@@ -90,11 +90,16 @@ it('switches OpenD from extended-hours to overnight subscriptions and preserves 
     service.configure(preferences, ''); await until(() => service.state(false).rows[0].quote?.session === 'after');
     options.usState = 37; options.serverNow = Date.parse('2026-10-24T04:01:00Z');
     options.basicTime = '2026-10-23 15:59:59'; options.tickerTime = '2026-10-23 23:59:59';
-    await until(() => service.state(false).rows[0].quote?.session === 'overnight');
-    expect(service.state(false).rows[0].quote).toMatchObject({ price: 103, baseline: 100 });
+    await until(() => {
+      const row = service.state(false).rows[0];
+      return row.status === '数据异常' || row.quote?.session === 'overnight';
+    });
+    const row = service.state(false).rows[0];
+    expect(row.status, row.error).toBe('夜盘');
+    expect(row.quote).toMatchObject({ price: 103, baseline: 100 });
     expect(service.state(false).rows[0].quote?.changePercent).toBeCloseTo(3);
     expect(gateway.calls.some(call => call.cmd === 3001 && call.c2s.isSubOrUnSub === false && call.c2s.session === 2)).toBe(true);
-    expect(gateway.calls.some(call => call.cmd === 3001 && call.c2s.isSubOrUnSub === true && call.c2s.session === 4)).toBe(true);
+    expect(gateway.calls.some(call => call.cmd === 3001 && call.c2s.isSubOrUnSub === true && call.c2s.session === 3)).toBe(true);
   } finally { service.stop(); await gateway.close(); }
 });
 

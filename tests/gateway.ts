@@ -75,6 +75,7 @@ export async function createGateway(options: GatewayOptions = {}) {
       else if (cmd === 3001) {
         const security = (request.c2s.securityList as Security[])[0];
         if (failures > 0) { failures--; send(socket, cmd, section, { retType: -1, retMsg: '行情服务暂不可用，请重试' }); }
+        else if (request.c2s.session === 4) send(socket, cmd, section, { retType: -1, retMsg: '行情订阅不支持 OVERNIGHT，请使用 ALL' });
         else if (security.code === options.deniedCode || options.bmp && security.market === 1) send(socket, cmd, section, { retType: -1, retMsg: '无行情权限' });
         else {
           reply({});

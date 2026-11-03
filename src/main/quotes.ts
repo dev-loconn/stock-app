@@ -240,7 +240,8 @@ export class QuoteService {
       const session = desiredSession(row.symbol, row.marketState);
       if (row.permission === 'denied' || !row.symbol.startsWith('US.') || !isExtendedSession(session)) continue;
       try {
-        const requestedSession = session === 'overnight' ? 4 : 2;
+        // OpenD quote subscriptions require ALL for overnight ticks; OVERNIGHT is trade-only.
+        const requestedSession = session === 'overnight' ? 3 : 2;
         const previousSession = this.tickerSubscriptions.get(row.symbol);
         if (previousSession !== requestedSession) {
           if (previousSession !== undefined) {
