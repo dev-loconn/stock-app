@@ -84,9 +84,15 @@ function secureWindow(window: BrowserWindow) {
 }
 function webPreferences() { return { preload: join(__dirname, '../preload/index.js'), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: !(layoutCheck || searchCheck || searchLiveCheck || cloudCheck) }; }
 function clampBounds(x: number, y: number, width: number, height: number) {
-  const work = screen.getDisplayNearestPoint({ x, y }).workArea;
-  width = Math.min(width, work.width); height = Math.min(height, work.height);
-  return { x: Math.max(work.x, Math.min(x, work.x + work.width - width)), y: Math.max(work.y, Math.min(y, work.y + work.height - height)), width, height };
+  const display = screen.getDisplayNearestPoint({ x, y }).bounds;
+  width = Math.min(width, display.width);
+  height = Math.min(height, display.height);
+  return {
+    x: Math.max(display.x, Math.min(x, display.x + display.width - width)),
+    y: Math.max(display.y, Math.min(y, display.y + display.height - height)),
+    width,
+    height,
+  };
 }
 function applyAppearance() {
   const preferences = store.preferences;
@@ -320,12 +326,13 @@ if (!app.requestSingleInstanceLock()) {
     const width = barWidth(work.width, store.preferences.securityWidth, barItems(store.preferences.watchlist).length, store.preferences.barPageSize);
     const position = store.preferences.position || { x: work.x + work.width - width - 24, y: work.y + 24 };
     bar = new BrowserWindow({ ...clampBounds(position.x, position.y, width, 44),
-      frame: false, resizable: false, focusable: false, skipTaskbar: true, alwaysOnTop: true, show: false,
+      frame: false, resizable: false, focusable: false, skipTaskbar: true, show: false,
       title: '股票行情悬浮条', backgroundColor: '#101824', webPreferences: webPreferences() });
+    bar.setAlwaysOnTop(true, 'pop-up-menu');
     // A native window can lose its topmost flag while the app is running. Restore
     // it only when necessary, without activating the bar or showing a hidden one.
     topmostTimer = setInterval(() => {
-      if (!bar.isDestroyed() && bar.isVisible() && !bar.isAlwaysOnTop()) bar.setAlwaysOnTop(true);
+      if (!bar.isDestroyed() && bar.isVisible() && !bar.isAlwaysOnTop()) bar.setAlwaysOnTop(true, 'pop-up-menu');
     }, 2000);
     secureWindow(bar); applyAppearance();
     panel = new WatchlistPanel({ bar, page, webPreferences: webPreferences(), secure: secureWindow,
