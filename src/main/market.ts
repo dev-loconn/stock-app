@@ -9,6 +9,8 @@ export interface QuoteBook {
 }
 export function zoneFor(symbol: string): string { return symbol.startsWith('US.') ? 'America/New_York' : symbol.startsWith('HK.') ? 'Asia/Hong_Kong' : 'Asia/Shanghai'; }
 const formatters = new Map<string, Intl.DateTimeFormat>();
+// OpenD Qot_Common.TickerType: extended-hours sold out of sequence and OTC sold out of sequence.
+const outOfSequenceTradeTypes = new Set([22, 25]);
 function parts(epoch: number, zone: string) {
   if (!formatters.has(zone)) formatters.set(zone, new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }));
@@ -78,6 +80,7 @@ export function applyTrades(book: QuoteBook, values: unknown[], state: number | 
   const date = sessionDate(session, serverNow, zone);
   for (const value of values) {
     const data = object(value);
+    if (outOfSequenceTradeTypes.has(number(data.type) ?? 0)) continue;
     const epoch = sourceEpoch(data.time, data.timestamp, zone);
     const price = number(data.price);
     if (!epoch || !price || price <= 0 || sessionDate(session, epoch, zone) !== date || epoch > serverNow + 5000) continue;

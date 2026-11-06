@@ -20,6 +20,19 @@ describe('quote session selection and calculation', () => {
     expect(selectQuote(value, 8, preNow).quote).toMatchObject({ price: 98, baseline: 100, session: 'pre' });
     expect(selectQuote(value, 8, preNow).quote?.changePercent).toBeCloseTo(-2);
   });
+  it.each([22, 25])('keeps the live pre-market price when OpenD reports an out-of-sequence trade (type %i)', type => {
+    const value: QuoteBook = { symbol: 'US.SOXL' };
+    const preNow = Date.parse('2026-11-06T09:25:09Z');
+    applyBasic(value, basic(40.87, 66.68, '2026-11-05 16:00:00'), preNow);
+    applyTrades(value, [{ price: 47.56, time: '2026-11-06 04:25:07', type: 21 }], 8, preNow, preNow);
+    expect(selectQuote(value, 8, preNow).quote?.price).toBe(47.56);
+
+    applyTrades(value, [{ price: 44.74, time: '2026-11-06 04:25:08', type }], 8, preNow, preNow);
+    expect(selectQuote(value, 8, preNow).quote?.price).toBe(47.56);
+
+    applyTrades(value, [{ price: 44.74, time: '2026-11-06 04:25:09', type: 21 }], 8, preNow, preNow);
+    expect(selectQuote(value, 8, preNow).quote?.price).toBe(44.74);
+  });
   it('uses same-day regular close for after-hours, never previous-day close', () => {
     const value = book(); applyBasic(value, basic(100, 90), now);
     applyTrades(value, [{ price: 103, time: '2026-10-23 16:00:59' }], 10, now, now);
