@@ -9,7 +9,7 @@ import { cloudError } from './cloud-api';
 import { cloudRequest, openCloudSocket } from './cloud-network';
 import { SecurityCatalog } from './security-catalog';
 import { AKShareDirectory } from './akshare-directory';
-import { barItems, barWidth, normalizeSymbol, validateAppearance, MARKET_NAMES, SECURITY_MARKETS, type WatchItem } from '../shared/stock';
+import { marketItems, barItems, barWidth, normalizeSymbol, validateAppearance, MARKET_NAMES, SECURITY_MARKETS, type WatchItem } from '../shared/stock';
 import { BarVisibility } from './visibility';
 import { FullscreenWatcher } from './fullscreen';
 import { WatchlistPanel } from './watchlist-panel';
@@ -94,11 +94,17 @@ function clampBounds(x: number, y: number, width: number, height: number) {
     height,
   };
 }
+function barSize(availableWidth: number) {
+  const preferences = store.preferences;
+  return {
+    width: barWidth(availableWidth, preferences.securityWidth, barItems(marketItems(preferences.watchlist, preferences.watchMarket)).length, preferences.barPageSize),
+    height: Math.max(44, Math.round(preferences.fontSize * 2.6 + 8)),
+  };
+}
 function applyAppearance() {
   const preferences = store.preferences;
   const work = screen.getDisplayMatching(bar.getBounds()).workArea;
-  const width = barWidth(work.width, preferences.securityWidth, barItems(preferences.watchlist).length, preferences.barPageSize);
-  const height = Math.max(44, Math.round(preferences.fontSize * 2.6 + 8));
+  const { width, height } = barSize(work.width);
   const bounds = bar.getBounds();
   bar.setBounds(clampBounds(bounds.x, bounds.y, width, height));
   bar.setOpacity(preferences.opacity);
@@ -111,6 +117,11 @@ function shortcutAction(action: ShortcutAction) {
   if (current.fullscreen || bar.isDestroyed()) return;
   if (action === 'toggleBar') { if (current.manualHidden) restoreBar(); else hideBar(); }
   else if (action === 'togglePanel') panel?.toggle(false);
+  else if (action === 'nextMarket') {
+    if (bar.isVisible()) void changeWatchMarket().catch(error => {
+      tray?.displayBalloon({ title: '市场切换失败', content: error instanceof Error ? error.message : '设置保存失败', iconType: 'error' });
+    });
+  }
   else if (bar.isVisible()) bar.webContents.send('stock:page', action === 'previousPage' ? -1 : 1);
 }
 function openSettings() {
@@ -137,7 +148,7 @@ function refreshWatchlist() {
 function showMenu() {
   Menu.buildFromTemplate([
     { label: '查看行情', click: openOverview },
-    { label: '自选管理 / 连接设置', click: openSettings },
+    { label: '设置与自选', click: openSettings },
     { type: 'separator' }, { label: '重新连接', click: () => service.reconnect() },
     { label: bar.isVisible() ? '隐藏悬浮条' : '恢复悬浮条', click: () => bar.isVisible() ? hideBar() : restoreBar() },
     { type: 'separator' }, { label: '退出', click: () => app.quit() },
@@ -152,6 +163,36 @@ async function captureEvidence() {
     ...snapshot }, null, 2) + '\n');
   if (bar.isVisible()) await writeFile(join(directory, 'stock-bar-live.png'), (await bar.webContents.capturePage()).toPNG());
 }
+async function changeWatchMarket(value?: unknown) {
+  await store.setWatchMarket(value);
+  applyAppearance(); broadcast();
+}
+ipcMain.handle('stock:watch-market', async (event, value: unknown) => {
+  authorize(event, 'overview');
+  try {
+    if (value === undefined) throw Error('市场选择无效');
+    await changeWatchMarket(value); return { ok: true };
+  } catch (error) { return { ok: false, message: error instanceof Error ? error.message : '市场切换失败' }; }
+});
+// Keep DOM pointer events available for wheel paging and the context menu.
+// Native app-region dragging consumes those events over quote tiles on Windows.
+let barDrag: { pointer: { x: number; y: number }; origin: { x: number; y: number }; moving: boolean } | undefined;
+ipcMain.on('stock:drag', (event, phase: unknown, point: { x: number; y: number } | null) => {
+  authorize(event, 'bar');
+  if (phase === 'end') { barDrag = undefined; return; }
+  if (!bar.isVisible() && !layoutCheck || !point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) { barDrag = undefined; return; }
+  if (phase === 'start') { barDrag = { pointer: point, origin: bar.getBounds(), moving: false }; return; }
+  if (phase !== 'move' || !barDrag) return;
+  const dx = point.x - barDrag.pointer.x, dy = point.y - barDrag.pointer.y;
+  if (!barDrag.moving && Math.hypot(dx, dy) < 4) return;
+  barDrag.moving = true;
+  const position = { x: Math.round(barDrag.origin.x + dx), y: Math.round(barDrag.origin.y + dy) };
+  // setPosition internally round-trips native bounds at fractional Windows DPI.
+  // Reusing those rounded sizes on every mouse move grows the window. Always
+  // supply canonical configured dimensions, including across separate drags.
+  const size = barSize(screen.getDisplayNearestPoint(position).workArea.width);
+  bar.setBounds({ ...position, ...size });
+});
 ipcMain.handle('stock:get', event => { authorize(event); return state(); });
 ipcMain.handle('stock:connect', async (event, value: unknown) => {
   authorize(event, 'settings');
@@ -323,7 +364,7 @@ if (!app.requestSingleInstanceLock()) {
     catalogTimer = setInterval(() => { if (!check || state().connection === 'connected' && store.preferences.connectionMode === 'opend') void catalog.refresh(); }, 60000);
     if (!check) void catalog.refresh();
     const work = screen.getPrimaryDisplay().workArea;
-    const width = barWidth(work.width, store.preferences.securityWidth, barItems(store.preferences.watchlist).length, store.preferences.barPageSize);
+    const width = barWidth(work.width, store.preferences.securityWidth, barItems(marketItems(store.preferences.watchlist, store.preferences.watchMarket)).length, store.preferences.barPageSize);
     const position = store.preferences.position || { x: work.x + work.width - width - 24, y: work.y + 24 };
     bar = new BrowserWindow({ ...clampBounds(position.x, position.y, width, 44),
       frame: false, resizable: false, focusable: false, skipTaskbar: true, show: false,
@@ -336,7 +377,7 @@ if (!app.requestSingleInstanceLock()) {
     }, 2000);
     secureWindow(bar); applyAppearance();
     panel = new WatchlistPanel({ bar, page, webPreferences: webPreferences(), secure: secureWindow,
-      content: () => ({ rows: store.preferences.watchlist.length, fontSize: store.preferences.fontSize }),
+      content: () => ({ rows: marketItems(store.preferences.watchlist, store.preferences.watchMarket).length, fontSize: store.preferences.fontSize }),
       restore: restoreBar, blocked: () => visibility.snapshot().fullscreen,
       blockedNotice: () => {
         const message = '当前全屏自动隐藏中，请退出全屏后再查看行情';

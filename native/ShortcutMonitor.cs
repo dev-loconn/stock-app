@@ -34,7 +34,7 @@ internal static class ShortcutMonitor {
     static readonly HashSet<int> capturedKeys = new HashSet<int>();
     static List<Binding> active = new List<Binding>(), staged;
     static HashSet<string> beforePrepare;
-    static readonly string[] actions = { "toggleBar", "togglePanel", "previousPage", "nextPage" };
+    static readonly string[] actions = { "toggleBar", "togglePanel", "previousPage", "nextPage", "nextMarket" };
     static int nextId = 1;
     static uint thread;
     static IntPtr hook, captureWindow;
@@ -44,7 +44,7 @@ internal static class ShortcutMonitor {
     static List<Binding> Parse(Dictionary<string, object> command) {
         var result = new List<Binding>(); var seen = new HashSet<string>(); var seenActions = new HashSet<string>();
         var list = command["bindings"] as IList;
-        if (list == null || list.Count > 4) throw new Exception("Invalid bindings");
+        if (list == null || list.Count > actions.Length) throw new Exception("Invalid bindings");
         foreach (var item in list) {
             var data = item as Dictionary<string, object>;
             var binding = new Binding { Action = Convert.ToString(data["action"]), Modifiers = Convert.ToInt32(data["modifiers"]), Key = Convert.ToInt32(data["key"]) };

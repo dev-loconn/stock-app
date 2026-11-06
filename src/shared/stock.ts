@@ -6,6 +6,19 @@ export interface CloudLoginState { status: 'signedOut' | 'authorizing' | 'author
 export interface WatchItem { symbol: string; name: string; securityType: number; aliases?: string[]; showInBar?: boolean }
 export type SecurityMarket = 'HK' | 'US' | 'SH' | 'SZ' | 'BJ';
 export type SearchMarket = SecurityMarket | 'CN' | 'all';
+export const WATCH_MARKETS = ['all', 'HK', 'US'] as const;
+export type WatchMarket = typeof WATCH_MARKETS[number];
+export const WATCH_MARKET_NAMES: Record<WatchMarket, string> = { all: '全部', HK: '港股', US: '美股' };
+export function validateWatchMarket(value: unknown): WatchMarket {
+  if (!WATCH_MARKETS.includes(value as WatchMarket)) throw Error('市场选择无效');
+  return value as WatchMarket;
+}
+export function marketItems<T extends WatchItem>(items: T[], market: WatchMarket = 'all'): T[] {
+  return market === 'all' ? items : items.filter(item => item.symbol.startsWith(`${market}.`));
+}
+export function nextWatchMarket(market: WatchMarket): WatchMarket {
+  return WATCH_MARKETS[(WATCH_MARKETS.indexOf(market) + 1) % WATCH_MARKETS.length];
+}
 export const SECURITY_MARKETS: SecurityMarket[] = ['HK', 'US', 'SH', 'SZ', 'BJ'];
 export const MARKET_NAMES: Record<SecurityMarket, string> = { HK: '港股', US: '美股', SH: '沪股', SZ: '深股', BJ: '北交所' };
 export function matchesMarket(current: SecurityMarket, filter: unknown): boolean {
@@ -15,6 +28,7 @@ export interface DirectoryMarketState { market: SecurityMarket; count: number; u
 export interface DirectoryState { markets: DirectoryMarketState[] }
 export interface SecuritySearch { items: WatchItem[]; total: number; directory: DirectoryState }
 export interface Preferences {
+  watchMarket: WatchMarket;
   shortcuts: ShortcutBindings;
   connectionMode: ConnectionMode;
   host: string; port: number; ssl: boolean;
@@ -45,6 +59,8 @@ export interface StockState {
 export interface ConnectionInput { host: string; port: number; ssl: boolean; key?: string; rememberKey: boolean; clearKey?: boolean }
 export interface Result { ok: boolean; message?: string }
 export interface StockBridge {
+  dragBar: (phase: 'start' | 'move' | 'end', point: { x: number; y: number }) => void;
+  setWatchMarket: (market: WatchMarket) => Promise<Result>;
   saveShortcuts: (input: ShortcutBindings) => Promise<Result>;
   retryShortcuts: () => Promise<Result>;
   captureShortcut: (active: boolean) => Promise<Result>;
@@ -74,6 +90,7 @@ export interface StockBridge {
   ready: () => void;
 }
 export const DEFAULT_PREFERENCES: Preferences = {
+  watchMarket: 'all',
   shortcuts: DEFAULT_SHORTCUTS,
   connectionMode: 'cloud',
   host: '127.0.0.1', port: 33333, ssl: false, securityWidth: 180, barPageSize: 3, fontSize: 14, opacity: 1,
@@ -107,9 +124,8 @@ export function validateAppearance(value: unknown): Appearance {
   }
   return { securityWidth: Number(data.securityWidth), barPageSize: Number(data.barPageSize), fontSize: Number(data.fontSize), opacity: data.opacity, autoStart: data.autoStart };
 }
-export const BAR_BRAND_WIDTH = 32;
-export const BAR_TOOLS_WIDTH = 48;
-export const BAR_CHROME_WIDTH = BAR_BRAND_WIDTH + BAR_TOOLS_WIDTH + 2;
+export const BAR_TOOLS_WIDTH = 28;
+export const BAR_CHROME_WIDTH = BAR_TOOLS_WIDTH + 2;
 // Missing selection flags belong to legacy watchlists. New additions always store an explicit false.
 export function barItems<T extends WatchItem>(items: T[]): T[] { return items.filter(item => item.showInBar !== false); }
 export function pageSize(width: number, securityWidth: number, limit = DEFAULT_PREFERENCES.barPageSize): number {

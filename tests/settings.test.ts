@@ -39,7 +39,7 @@ it('preserves custom and disabled bindings and avoids new duplicates during the 
     const diagnostic = new SettingsStore(path, cipher); await diagnostic.load(false);
     expect(await readFile(path, 'utf8')).toBe(original);
     const store = new SettingsStore(path, cipher); await store.load();
-    expect(store.preferences.shortcuts).toEqual({ ...shortcuts, nextPage: DEFAULT_SHORTCUTS.nextPage });
+    expect(store.preferences.shortcuts).toEqual({ ...shortcuts, nextPage: DEFAULT_SHORTCUTS.nextPage, nextMarket: DEFAULT_SHORTCUTS.nextMarket });
     expect(store.warning).toBe('');
     const reloaded = new SettingsStore(path, cipher); await reloaded.load();
     expect(reloaded.preferences.shortcuts).toEqual(store.preferences.shortcuts);

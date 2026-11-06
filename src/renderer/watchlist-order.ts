@@ -1,4 +1,16 @@
-import type { WatchItem } from '../shared/stock';
+import { marketItems, type WatchItem, type WatchMarket } from '../shared/stock';
+
+/** Replace only the selected market's slots; edits must retain hidden markets. */
+export function mergeMarketWatchlist(items: WatchItem[], market: WatchMarket, next: WatchItem[]): WatchItem[] {
+  if (market === 'all') return next;
+  const selected = new Set(marketItems(items, market).map(item => item.symbol));
+  let index = 0;
+  return items.flatMap(item => {
+    if (!selected.has(item.symbol)) return [item];
+    const replacement = next[index++];
+    return replacement ? [replacement] : [];
+  });
+}
 
 export interface WatchlistDrop { symbol: string; edge: 'before' | 'after' }
 

@@ -147,7 +147,7 @@ export async function runPanelCheck(bar: BrowserWindow, service: MarketService, 
     };
     await save(original.slice(0, 1)); await open();
     const onePanel = panelBounds(bar.getBounds(), work, 1, 14);
-    assert(window.getBounds().height < 100 && Math.abs(window.getBounds().width - onePanel.width) <= 2, 'one-security panel fits the bar with a 320 minimum width and content height');
+    assert(window.getBounds().height < 100 && Math.abs(window.getBounds().width - onePanel.width) <= 2, 'one-security panel matches the bar width and content height');
     await screenshot(window, 'panel-one.png');
     const forbidden = await evaluate(window, `window.stockBar.setWatchlist([]).then(()=>false,()=>true)`);
     assert(forbidden, 'read-only panel cannot mutate watchlist through IPC');

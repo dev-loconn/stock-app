@@ -17,6 +17,8 @@ const bridge: ProbeBridge = {
 contextBridge.exposeInMainWorld('openDProbe', bridge);
 
 const stock: StockBridge = {
+  dragBar: (phase, point) => ipcRenderer.send('stock:drag', phase, point),
+  setWatchMarket: market => ipcRenderer.invoke('stock:watch-market', market),
   saveShortcuts: input => ipcRenderer.invoke('stock:shortcuts-save', input),
   retryShortcuts: () => ipcRenderer.invoke('stock:shortcuts-retry'),
   captureShortcut: active => ipcRenderer.invoke('stock:shortcuts-capture', active),

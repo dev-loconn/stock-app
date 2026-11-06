@@ -7,7 +7,7 @@ export function panelMetrics(fontSize: number) {
 /** All coordinates are Electron DIPs, including negative monitor origins. */
 export function panelBounds(bar: Bounds, work: Bounds, rows: number, fontSize: number): Bounds {
   const metrics = panelMetrics(fontSize);
-  const width = Math.min(work.width, Math.max(320, bar.width));
+  const width = Math.min(work.width, Math.max(1, bar.width));
   const wanted = metrics.header + (rows ? Math.min(6, rows) * metrics.row : metrics.empty) + 2;
   const below = Math.max(0, work.y + work.height - (bar.y + bar.height));
   const above = Math.max(0, bar.y - work.y);

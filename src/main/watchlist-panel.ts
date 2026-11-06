@@ -80,12 +80,19 @@ export class WatchlistPanel {
       const bounds = this.bounds();
       // Compare requested DIPs, not rounded HWND bounds: otherwise every quote can resize the window at fractional DPI.
       if (!this.lastBounds || Object.keys(bounds).some(key => bounds[key as keyof Bounds] !== this.lastBounds![key as keyof Bounds])) {
-        this.window.setBounds(bounds); this.lastBounds = bounds;
+        this.window.setBounds(bounds);
+        // Electron rounds native bounds outwards at fractional Windows DPI.
+        // Match the bar's client rectangle, then compensate once for the panel's
+        // own conversion; never feed rounded dimensions back on quote updates.
+        const actual = this.window.getContentBounds();
+        const excess = actual.width - bounds.width;
+        if (excess !== 0) this.window.setBounds({ ...bounds, width: Math.max(1, bounds.width - excess) });
+        this.lastBounds = bounds;
       }
     }
   }
   private bounds() {
-    const bar = this.options.bar.getBounds();
+    const bar = this.options.bar.getContentBounds();
     const work = screen.getDisplayMatching(bar).workArea;
     const { rows, fontSize } = this.options.content();
     return panelBounds(bar, work, rows, fontSize);

@@ -1,10 +1,12 @@
-export const SHORTCUT_ACTIONS = ['toggleBar', 'togglePanel', 'previousPage', 'nextPage'] as const;
+export const SHORTCUT_ACTIONS = ['toggleBar', 'togglePanel', 'previousPage', 'nextPage', 'nextMarket'] as const;
 export type ShortcutAction = typeof SHORTCUT_ACTIONS[number];
 export type ShortcutBindings = Record<ShortcutAction, string | null>;
 export const SHORTCUT_LABELS: Record<ShortcutAction, string> = {
+  nextMarket: '切换市场（全部 → 港股 → 美股）',
   toggleBar: '显示／隐藏悬浮条', togglePanel: '展开／收起行情面板', previousPage: '上一页', nextPage: '下一页',
 };
 export const DEFAULT_SHORTCUTS: ShortcutBindings = {
+  nextMarket: 'Ctrl+Alt+M',
   toggleBar: 'Ctrl+Alt+H', togglePanel: 'Ctrl+Alt+Q', previousPage: 'Ctrl+Alt+J', nextPage: 'Ctrl+Alt+K',
 };
 /** Upgrade unchanged 0.9.0 defaults without displacing a user's custom binding. */

@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { DEFAULT_SHORTCUTS, upgradeShortcutDefaults, validateShortcuts, type ShortcutBindings } from '../shared/shortcuts';
-import { DEFAULT_PREFERENCES, normalizeSymbol, validateAppearance, validateConnection, type Preferences, type WatchItem } from '../shared/stock';
+import { DEFAULT_SHORTCUTS, normalizeShortcut, upgradeShortcutDefaults, validateShortcuts, type ShortcutBindings } from '../shared/shortcuts';
+import { DEFAULT_PREFERENCES, normalizeSymbol, validateWatchMarket, nextWatchMarket, validateAppearance, validateConnection, type Preferences, type WatchItem } from '../shared/stock';
 
 interface Cipher { available: () => boolean; encrypt: (text: string) => Buffer; decrypt: (data: Buffer) => string }
 function readWatchlist(value: unknown, requireSelection = true): WatchItem[] {
@@ -53,14 +53,17 @@ export class SettingsStore {
       if (data.version === 4) watchlist = flattenVersion4(watchlist, (source as unknown as Record<string, unknown>).allView);
       if (source.connectionMode !== undefined && !['cloud', 'opend'].includes(source.connectionMode)) throw Error('连接方式无效');
       this.preferences = { connectionMode: source.connectionMode || 'cloud', host: source.host, port: source.port, ssl: source.ssl,
-        ...appearance, watchlist, shortcuts: structuredClone(DEFAULT_SHORTCUTS) };
+        ...appearance, watchlist, watchMarket: source.watchMarket === undefined ? 'all' : validateWatchMarket(source.watchMarket), shortcuts: structuredClone(DEFAULT_SHORTCUTS) };
       // A damaged hotkey section must not discard the watchlist or protected connection.
       let shortcutDefaultsMigrated = false;
       if (source.shortcuts !== undefined) {
         try {
-          const saved = validateShortcuts(source.shortcuts);
+          const legacyBindings = source.shortcuts.nextMarket === undefined;
+          const marketKey = DEFAULT_SHORTCUTS.nextMarket;
+          const conflict = Object.values(source.shortcuts).some(value => typeof value === 'string' && normalizeShortcut(value) === marketKey);
+          const saved = validateShortcuts({ ...source.shortcuts, ...(legacyBindings ? { nextMarket: conflict ? null : marketKey } : {}) });
           const upgraded = Number(data.shortcutDefaultsVersion || 0) < 1 ? upgradeShortcutDefaults(saved) : saved;
-          shortcutDefaultsMigrated = JSON.stringify(saved) !== JSON.stringify(upgraded);
+          shortcutDefaultsMigrated = legacyBindings || JSON.stringify(saved) !== JSON.stringify(upgraded);
           this.preferences.shortcuts = upgraded;
         }
         catch { this.warning = '快捷键配置无效，已使用默认快捷键；其他设置保留'; }
@@ -107,6 +110,9 @@ export class SettingsStore {
       await this.write(next, encryptedKey);
       this.preferences = next; this.key = nextKey; this.encryptedKey = encryptedKey; this.keySaved = Boolean(encryptedKey);
     });
+  }
+  setWatchMarket(value?: unknown): Promise<void> {
+    return this.update(current => ({ ...current, watchMarket: value === undefined ? nextWatchMarket(current.watchMarket) : validateWatchMarket(value) }));
   }
   setShortcuts(shortcuts: ShortcutBindings): Promise<void> { return this.save(shortcuts); }
   private enqueue(operation: () => Promise<void>): Promise<void> {

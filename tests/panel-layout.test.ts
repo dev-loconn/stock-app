@@ -4,7 +4,7 @@ import { panelBounds } from '../src/shared/panel-layout';
 it('anchors below, flips above, and clamps at the edges without moving the bar', () => {
   const work = { x: 0, y: 0, width: 1920, height: 1040 };
   expect(panelBounds({ x: 100, y: 20, width: 600, height: 44 }, work, 10, 14)).toEqual({ x: 100, y: 64, width: 600, height: 328 });
-  expect(panelBounds({ x: 1800, y: 990, width: 200, height: 44 }, work, 10, 14)).toEqual({ x: 1600, y: 662, width: 320, height: 328 });
+  expect(panelBounds({ x: 1800, y: 990, width: 200, height: 44 }, work, 10, 14)).toEqual({ x: 1720, y: 662, width: 200, height: 328 });
   expect(panelBounds({ x: -20, y: 20, width: 200, height: 44 }, work, 1, 14).x).toBe(0);
 });
 

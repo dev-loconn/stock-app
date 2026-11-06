@@ -39,7 +39,7 @@ export async function runShortcutCheck(bar: BrowserWindow, getSettings: () => Br
     assert(JSON.stringify(store.preferences.shortcuts) === JSON.stringify(DEFAULT_SHORTCUTS), 'saved 0.9.0 defaults upgrade to current defaults before registration');
     if (Object.values(defaultStatuses).some(status => !status.active)) {
       // Keep the user's occupied defaults alone; only this isolated test profile uses the fallback.
-      testBindings = { toggleBar: 'Ctrl+Alt+Shift+H', togglePanel: 'Ctrl+Alt+Shift+Q', previousPage: 'Ctrl+Alt+Shift+J', nextPage: 'Ctrl+Alt+Shift+K' };
+      testBindings = { nextMarket: 'Ctrl+Alt+Shift+M', toggleBar: 'Ctrl+Alt+Shift+H', togglePanel: 'Ctrl+Alt+Shift+Q', previousPage: 'Ctrl+Alt+Shift+J', nextPage: 'Ctrl+Alt+Shift+K' };
       testModifiers = 7;
       await manager.save(testBindings, bindings => store.setShortcuts(bindings));
     }
@@ -94,7 +94,7 @@ export async function runShortcutCheck(bar: BrowserWindow, getSettings: () => Br
     assert(!bar.isVisible(), 'leaving settings cancels recording and restores original binding'); await send(72);
 
     await blocker.start();
-    const blocked: ShortcutBindings = { toggleBar: 'Ctrl+Alt+Shift+F10', togglePanel: null, previousPage: null, nextPage: null };
+    const blocked: ShortcutBindings = { nextMarket: null, toggleBar: 'Ctrl+Alt+Shift+F10', togglePanel: null, previousPage: null, nextPage: null };
     const blocking = await blocker.request('sync', { bindings: nativeBindings(blocked) });
     assert(blocking.statuses?.[0]?.active, 'separate process owns conflict combination');
     settings.focus(); await pause(200); await record('toggleBar'); await send(121, 0, 1, 7);

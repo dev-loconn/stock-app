@@ -32,16 +32,19 @@ export async function runLayoutCheck(bar: BrowserWindow, service: QuoteService,
   if (!control || !/^http:\/\/127\.0\.0\.1:\d+$/.test(control)) throw Error('缺少本地布局夹具控制地址');
   const command = async (path: string) => { const response = await fetch(control + path); if (!response.ok) throw Error('布局夹具控制失败'); };
   await until(() => service.state(false).connection === 'connected' && service.state(false).rows.every(row => Boolean(row.quote)), '全部夹具行情');
-  await until(async () => await evaluate(bar, `document.querySelectorAll('.quote-tile').length === 3 && !!document.querySelector('.bar-brand.online') && Array.from(document.querySelectorAll('.quote-line strong')).every(node=>node.textContent==='101.00')`), '每页三只及连接状态已绘制');
+  await until(async () => await evaluate(bar, `document.querySelectorAll('.quote-tile').length === 3 && Array.from(document.querySelectorAll('.quote-line strong')).every(node=>node.textContent==='101.00')`), '每页三只及连接状态已绘制');
   const initialBounds = bar.getBounds();
   assert(await evaluate(bar, `!document.querySelector('.bar-group') && typeof window.stockBar.group==='undefined' && typeof window.stockBar.groupMenu==='undefined'`), 'bar has no group selector or group bridge');
   const tileWidths = await evaluate(bar, `Array.from(document.querySelectorAll('.quote-tile')).map(node => node.getBoundingClientRect().width)`);
   console.log(JSON.stringify({ initialBounds, tileWidths, viewport: await evaluate(bar, `({width:innerWidth, ratio:devicePixelRatio})`) }));
   // Windows rounds native bounds to physical pixels at fractional display scales.
   assert(tileWidths.every((width: number) => Math.abs(width - 180) < 1) && Math.abs(initialBounds.width - (3 * 180 + BAR_CHROME_WIDTH)) <= 2, 'default width is 180 per security, three per page');
-  assert(await evaluate(bar, `getComputedStyle(document.querySelector('.connection-word')).display === 'none' && Math.abs(document.querySelector('.bar-brand').getBoundingClientRect().width - 32) < 1`), 'connected status only shows a compact dot');
+  assert(await evaluate(bar, `!document.querySelector('.bar-brand, .connection-word, .connection-dot') && document.querySelector('.bar-quotes').getBoundingClientRect().left <= 2`), 'bar has no connection indicator or reserved left gutter');
   const overview = openOverview()!;
   await until(async () => !overview.webContents.isLoading() && await evaluate(overview, `document.querySelectorAll('tbody tr').length === 10`), '总览显示十只');
+  const barPixels = (await bar.webContents.capturePage()).getSize();
+  const panelPixels = (await overview.webContents.capturePage()).getSize();
+  assert(Math.abs(barPixels.width-panelPixels.width)<=1, 'bar and panel visible widths match within one physical pixel');
   assert(openOverview()!.id === overview.id, 'opening overview twice reuses the same window');
   assert(!overview.isResizable() && overview.getParentWindow() === bar, 'overview is a fixed-size panel anchored to the bar');
   const symbols = await evaluate(overview, `Array.from(document.querySelectorAll('tbody tr')).map(node => node.dataset.symbol)`);
@@ -62,8 +65,8 @@ export async function runLayoutCheck(bar: BrowserWindow, service: QuoteService,
   assert(true, 'all ten overview prices and the current bar page update through the live bridge');
   await command('/drop');
   await until(async () => await evaluate(overview, `document.querySelector('.overview-connection strong').textContent === '重连中'`), '总览断线状态');
-  assert(await evaluate(bar, `document.querySelector('.connection-word').textContent === '重连中' && !Array.from(document.querySelectorAll('.market-tag')).some(node=>node.textContent.includes('重连'))`) &&
-    await evaluate(overview, `Array.from(document.querySelectorAll('.overview-price')).every(node=>node.textContent==='123.00')`), 'outage shows one global warning and retains prices');
+  assert(await evaluate(bar, `!document.querySelector('.connection-word, .connection-dot') && !Array.from(document.querySelectorAll('.market-tag')).some(node=>node.textContent.includes('重连'))`) &&
+    await evaluate(overview, `Array.from(document.querySelectorAll('.overview-price')).every(node=>node.textContent==='123.00')`), 'outage status remains in overview and retains prices without adding bar chrome');
   await screenshot(bar, 'offline-bar.png');
   await screenshot(overview, 'offline-overview.png');
   await command('/restore');
@@ -142,6 +145,76 @@ export async function runLayoutCheck(bar: BrowserWindow, service: QuoteService,
   await saveAppearance(140, 20);
   assert(await evaluate(bar, `Array.from(document.querySelectorAll('.stock-name')).every(node=>node.scrollWidth<=node.clientWidth+1) && document.querySelector('.bar-tools').getBoundingClientRect().right<=innerWidth+1`), 'short ETF tickers fit at 140px with the largest font and usable controls');
   await screenshot(bar, 'etf-tickers-narrow.png');
+  // Switch using the real panel controls and IPC, keeping quote subscriptions intact.
+  for (const [market, expected] of [['HK', 1], ['US', 5], ['all', 6]] as const) {
+    await evaluate(overview, `Array.from(document.querySelectorAll('.overview-markets button')).find(node=>node.textContent===${JSON.stringify(market === 'HK' ? '港股' : market === 'US' ? '美股' : '全部')}).click()`);
+    await until(() => evaluate(overview, `document.querySelectorAll('tbody tr').length===${expected}`), '市场面板筛选');
+    await until(() => evaluate(bar, `document.querySelector('.page-number').textContent.startsWith('1/')`), '市场切换重置分页');
+    const snapshot = await evaluate(overview, 'window.stockBar.get()');
+    assert(snapshot.preferences.watchMarket === market && snapshot.rows.length === 6, 'market switch persists selection without dropping subscriptions: ' + market);
+    assert(await evaluate(bar, `!document.querySelector('.overview-markets')`), 'market controls stay outside the floating bar');
+  }
+  await screenshot(overview, 'market-tabs.png');
+  assert(await evaluate(bar, `!document.querySelector('.grip') && !document.querySelector('[aria-label="打开设置"]') && document.querySelectorAll('.bar-tools button').length===1`), 'bar removes drag grip and settings button while retaining panel toggle');
+  const dragOrigin = bar.getBounds();
+  bar.webContents.sendInputEvent({ type: 'mouseDown', x: 80, y: 12, globalX: 100, globalY: 100, button: 'left', clickCount: 1 });
+  await new Promise(done => setTimeout(done, 100));
+  bar.webContents.sendInputEvent({ type: 'mouseMove', x: 110, y: 22, globalX: 130, globalY: 110, modifiers: ['leftbuttondown'], button: 'left' });
+  await new Promise(done => setTimeout(done, 300));
+  await until(() => Math.abs(bar.getBounds().x - dragOrigin.x - 30) <= 2 && Math.abs(bar.getBounds().y - dragOrigin.y - 10) <= 2, '行情区域直接拖动');
+  bar.webContents.sendInputEvent({ type: 'mouseUp', x: 80, y: 12, globalX: 130, globalY: 110, button: 'left', clickCount: 1 });
+  await new Promise(done => setTimeout(done, 100));
+  const dragEnd = bar.getBounds();
+  bar.webContents.sendInputEvent({ type: 'mouseMove', x: 150, y: 25 });
+  await new Promise(done => setTimeout(done, 100));
+  assert(JSON.stringify(bar.getBounds()) === JSON.stringify(dragEnd), 'releasing the pointer stops dragging');
+  assert(!bar.isFocusable(), 'dragging keeps the bar non-focusable');
+  bar.setBounds(dragOrigin);
+  await screenshot(bar, 'whole-bar-drag.png');
+  await saveAppearance(140, 20);
+  const repeatOrigin = bar.getBounds();
+  await evaluate(bar, `window.stockBar.dragBar('start', {x:100,y:100})`);
+  for (let step = 0; step < 120; step++) {
+    await evaluate(bar, `window.stockBar.dragBar('move', {x:${100 + step % 20}, y:${100 + step % 10}})`);
+    await new Promise(done => setTimeout(done, 5));
+  }
+  await evaluate(bar, `window.stockBar.dragBar('end', {x:100,y:100})`);
+  const repeatEnd = bar.getBounds();
+
+  assert(Math.abs(repeatEnd.width-repeatOrigin.width)<=1 && Math.abs(repeatEnd.height-repeatOrigin.height)<=1, '120 drag updates preserve window width and height without cumulative growth');
+  for (let gesture = 0; gesture < 30; gesture++) {
+    await evaluate(bar, `window.stockBar.dragBar('start', {x:100,y:100}); window.stockBar.dragBar('move', {x:110,y:110}); window.stockBar.dragBar('end', {x:110,y:110});`);
+    await new Promise(done => setTimeout(done, 5));
+    const bounds = bar.getBounds();
+    assert(Math.abs(bounds.width-repeatOrigin.width)<=1 && Math.abs(bounds.height-repeatOrigin.height)<=1, 'separate drag preserves configured dimensions: ' + gesture);
+  }
+  bar.setBounds({x:repeatOrigin.x,y:repeatOrigin.y,width:450,height:60});
+  for (const capacity of [1, 2, 3]) {
+    await evaluate(settings, `(async()=>{const {preferences:p}=await window.stockBar.get();return window.stockBar.saveAppearance({...p,barPageSize:${capacity},securityWidth:140,fontSize:14})})()`);
+    await new Promise(done => setTimeout(done, 150));
+    const barWidthPixels = (await bar.webContents.capturePage()).getSize().width;
+    const panelWidthPixels = (await overview.webContents.capturePage()).getSize().width;
+    assert(Math.abs(barWidthPixels-panelWidthPixels)<=1, `visible widths match at page capacity ${capacity}: ${barWidthPixels}/${panelWidthPixels}`);
+  }
+  const managed = ['US.SOXL', 'HK.09999', 'US.SOXS', 'US.TQQQ'];
+  await saveList(managed.map(symbol => ({symbol,name:symbol,securityType:4,showInBar:true})));
+  await evaluate(settings, `Array.from(document.querySelectorAll('.watchlist-markets button')).find(node=>node.textContent==='美股').click()`);
+  await until(() => evaluate(settings, `document.querySelectorAll('.watchlist li').length===3`), '设置美股分组');
+  await evaluate(settings, `document.querySelector('.watchlist li[data-symbol="US.TQQQ"] .move-first').click()`);
+  await until(() => evaluate(settings, `document.querySelector('.watchlist li').dataset.symbol==='US.TQQQ' && document.querySelector('.watchlist').getAttribute('aria-busy')==='false'`), '分组移到最前');
+  const managedState = await evaluate(settings, 'window.stockBar.get()');
+  assert(JSON.stringify(managedState.preferences.watchlist.map((item: {symbol:string})=>item.symbol)) === JSON.stringify(['US.TQQQ','HK.09999','US.SOXL','US.SOXS']), 'move-first updates only US slots and retains hidden HK security');
+  assert(managedState.preferences.watchMarket === 'all', 'settings filter does not change floating bar market');
+  assert(await evaluate(settings, `document.querySelector('.watchlist li .move-first').disabled`), 'first security disables redundant move-first');
+  await evaluate(settings, `document.querySelector('.watchlist li[data-symbol="US.SOXL"] input').click()`);
+  await until(() => evaluate(settings, `!document.querySelector('.watchlist li[data-symbol="US.SOXL"] input').checked && document.querySelector('.watchlist').getAttribute('aria-busy')==='false'`), '分组展示勾选');
+  await evaluate(settings, `document.querySelector('.watchlist li[data-symbol="US.SOXS"] .remove').click()`);
+  await evaluate(settings, `Array.from(document.querySelectorAll('.watchlist-confirm button')).find(node=>node.textContent==='确认移除').click()`);
+  await until(() => evaluate(settings, `document.querySelectorAll('.watchlist li').length===2`), '分组移除');
+  const afterManage = await evaluate(settings, 'window.stockBar.get()');
+  assert(afterManage.preferences.watchlist.some((item: {symbol:string})=>item.symbol==='HK.09999') && afterManage.preferences.watchlist.length===3, 'filtered removal preserves hidden markets');
+  await evaluate(settings, `document.querySelector('.watchlist-markets').scrollIntoView({block:'start'})`);
+  await screenshot(settings, 'settings-market-order.png');
   const report = { passed: true, appVersion: app.getVersion(), executable: process.execPath,
     mode: 'protocol fixture only; isolated profile; hidden native Electron windows', checks };
   await writeFile(resolve(directory, 'result.json'), JSON.stringify(report, null, 2));

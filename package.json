@@ -1,6 +1,6 @@
 {
   "name": "stock-bar",
-  "version": "0.11.4",
+  "version": "0.12.3",
   "private": true,
   "description": "Windows floating stock bar with Futu cloud login and optional local OpenD",
   "main": "dist-electron/main/main.js",

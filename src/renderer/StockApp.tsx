@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { BAR_BRAND_WIDTH, BAR_TOOLS_WIDTH, BAR_CHROME_WIDTH, DEFAULT_PREFERENCES, barItems, formatChange, formatPrice, pageSize,
-  type StockBridge, type StockRow, type StockState, type WatchItem } from '../shared/stock';
+import { BAR_TOOLS_WIDTH, BAR_CHROME_WIDTH, DEFAULT_PREFERENCES, WATCH_MARKETS, WATCH_MARKET_NAMES, marketItems, barItems, formatChange, formatPrice, pageSize,
+  type StockBridge, type StockRow, type StockState, type WatchItem, type WatchMarket } from '../shared/stock';
 import './stock.css';
 import { SecuritySearchPanel } from './SecuritySearch';
 import { Watchlist } from './Watchlist';
+import { mergeMarketWatchlist } from './watchlist-order';
 import { panelMetrics } from '../shared/panel-layout';
 import { ShortcutSettings } from './ShortcutSettings';
 import { barSecurityTitle } from '../shared/security-display';
@@ -29,13 +30,14 @@ function Bar({ state }: { state?: StockState }) {
   const [overviewOpen, setOverviewOpen] = useState(false);
   useEffect(() => window.stockBar.onOverview(setOverviewOpen), []);
   const wheelAt = useRef(0);
+  const dragPointer = useRef<number | null>(null);
   useEffect(() => { const resize = () => setWidth(innerWidth); addEventListener('resize', resize); return () => removeEventListener('resize', resize); }, []);
   const preferences = state?.preferences || DEFAULT_PREFERENCES;
-  const selected = new Set(barItems(preferences.watchlist).map(item => item.symbol));
+  const selected = new Set(barItems(marketItems(preferences.watchlist, preferences.watchMarket)).map(item => item.symbol));
   const rows = state?.rows.filter(row => selected.has(row.symbol)) || [];
   const count = pageSize(width, preferences.securityWidth, preferences.barPageSize);
   const pages = Math.max(1, Math.ceil(rows.length / count));
-  const pageKey = JSON.stringify([preferences.barPageSize, preferences.watchlist.map(item => [item.symbol, item.showInBar !== false])]);
+  const pageKey = JSON.stringify([preferences.watchMarket, preferences.barPageSize, preferences.watchlist.map(item => [item.symbol, item.showInBar !== false])]);
   const current = Math.min(pagination.key === pageKey ? pagination.page : 0, pages - 1);
   useEffect(() => {
     setPagination(value => value.key !== pageKey ? { key: pageKey, page: 0 }
@@ -46,16 +48,33 @@ function Bar({ state }: { state?: StockState }) {
     setPagination(value => ({ key: pageKey, page: ((value.key === pageKey ? Math.min(value.page, pages - 1) : 0) + direction + pages) % pages }));
   }), [pageKey, pages]);
   return <div className="stock-bar" style={{ '--font-size': `${preferences.fontSize}px`, '--security-width': `${Math.max(1, Math.min(preferences.securityWidth, width - BAR_CHROME_WIDTH))}px`,
-    '--brand-width': `${BAR_BRAND_WIDTH}px`, '--tools-width': `${BAR_TOOLS_WIDTH}px` } as CSSProperties}
+    '--tools-width': `${BAR_TOOLS_WIDTH}px` } as CSSProperties}
     onContextMenu={event => { event.preventDefault(); window.stockBar.menu(); }}
+    onPointerDown={event => {
+      if (event.button !== 0 || (event.target as HTMLElement).closest('button')) return;
+      dragPointer.current = event.pointerId;
+      event.currentTarget.setPointerCapture(event.pointerId);
+      window.stockBar.dragBar('start', { x: event.screenX, y: event.screenY });
+    }}
+    onPointerMove={event => {
+      if (dragPointer.current === event.pointerId) window.stockBar.dragBar('move', { x: event.screenX, y: event.screenY });
+    }}
+    onPointerUp={event => {
+      if (dragPointer.current !== event.pointerId) return;
+      dragPointer.current = null;
+      window.stockBar.dragBar('end', { x: event.screenX, y: event.screenY });
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }}
+    onLostPointerCapture={event => {
+      if (dragPointer.current === null) return;
+      dragPointer.current = null;
+      window.stockBar.dragBar('end', { x: event.screenX, y: event.screenY });
+    }}
     onWheel={event => {
       if (Date.now() - wheelAt.current < 160 || pages < 2) return;
       wheelAt.current = Date.now();
       setPagination({ key: pageKey, page: (current + (event.deltaY > 0 ? 1 : -1) + pages) % pages });
     }}>
-    <div className={`bar-brand ${state?.connection === 'connected' ? 'online' : 'offline'}`} title={`${connectionText(state)}${state?.message ? `：${state.message}` : ''}`} aria-label={`行情连接：${connectionText(state)}`}>
-      <span className="grip" aria-label="拖动悬浮条">⠿</span><span className={`connection-dot ${state?.connection || 'disconnected'}`} />
-      <span className="connection-word" role="status">{connectionText(state)}</span></div>
     <div className="bar-quotes">
       {!rows.length && <button className="empty-bar" onClick={() => window.stockBar.openSettings()}>{preferences.watchlist.length ? '请选择展示证券' : '添加自选证券，开始查看行情'}</button>}
       {rows.slice(current * count, (current + 1) * count).map(row => <div className="quote-tile" key={row.symbol}>
@@ -67,12 +86,15 @@ function Bar({ state }: { state?: StockState }) {
     <div className="bar-tools"><span className="page-number">{current + 1}/{pages}</span><div className="bar-tool-buttons">
       <button className="overview-toggle" aria-label={overviewOpen ? '收起行情面板' : '展开行情面板'} aria-expanded={overviewOpen}
         title={overviewOpen ? '收起行情面板' : '查看行情'} onClick={() => window.stockBar.toggleOverview()}><span>{overviewOpen ? '▴' : '▾'}</span></button>
-      <button aria-label="打开设置" title="设置与自选" onClick={() => window.stockBar.openSettings()}>⚙</button></div></div>
+      </div></div>
   </div>;
 }
 
 function Overview({ state }: { state?: StockState }) {
-  const rows = state?.rows || [];
+  const market = state?.preferences.watchMarket || 'all';
+  const rows = marketItems(state?.rows || [], market);
+  const [marketError, setMarketError] = useState('');
+  const [switching, setSwitching] = useState(false);
   const scroll = useRef<HTMLDivElement>(null);
   const fontSize = state?.preferences.fontSize || DEFAULT_PREFERENCES.fontSize;
   const metrics = panelMetrics(fontSize);
@@ -80,14 +102,26 @@ function Overview({ state }: { state?: StockState }) {
     document.body.inert = !open;
     if (open && scroll.current) scroll.current.scrollTop = 0;
   }), []);
+  useEffect(() => { if (scroll.current) scroll.current.scrollTop = 0; }, [market]);
   const label = connectionText(state);
   const detail = state?.message?.startsWith(label) ? state.message.slice(label.length).replace(/^[\s：:·]+/, '') : state?.message;
-  return <main className="overview-page" aria-label="全部自选行情" style={{ '--font-size': `${fontSize}px`, '--panel-header': `${metrics.header}px`, '--panel-row': `${metrics.row}px` } as CSSProperties}>
-    <header className="overview-header"><span className="overview-count">自选 <strong>{rows.length}</strong></span>
-      <div className="overview-connection" role="status" title={[label, detail].filter(Boolean).join('：')}><span className={`connection-dot ${state?.connection || 'disconnected'}`} /><strong>{label}</strong></div>
-      <button onClick={() => window.stockBar.openSettings()}>管理自选</button></header>
-    {!state ? <div className="overview-empty">正在加载自选行情…</div> : !rows.length ? <div className="overview-empty"><p>尚未添加自选证券</p>
-      <button onClick={() => window.stockBar.openSettings()}>添加自选证券</button></div> : <div className="overview-table-scroll" ref={scroll} tabIndex={0} aria-label="全部自选行情列表">
+  return <main className="overview-page" aria-label={`${WATCH_MARKET_NAMES[market]}自选行情`} style={{ '--font-size': `${fontSize}px`, '--panel-header': `${metrics.header}px`, '--panel-row': `${metrics.row}px` } as CSSProperties}>
+    <header className="overview-header">
+    <nav className="overview-markets" aria-label="自选市场">
+      {WATCH_MARKETS.map(value => <button key={value} aria-pressed={market === value} disabled={!state || switching}
+        onClick={async () => {
+          setSwitching(true); setMarketError('');
+          try { const result = await window.stockBar.setWatchMarket(value); if (!result.ok) setMarketError(result.message || '市场切换失败'); }
+          catch { setMarketError('市场切换失败，请重试'); }
+          finally { setSwitching(false); }
+        }}>{WATCH_MARKET_NAMES[value]}</button>)}
+    </nav>
+      <div className="overview-connection" role="status" aria-label={label} title={[label, detail].filter(Boolean).join('：')}><span className={`connection-dot ${state?.connection || 'disconnected'}`} /><strong>{label}</strong></div>
+      <button className="overview-manage" onClick={() => window.stockBar.openSettings()}>管理自选</button>
+    </header>
+    {marketError && <div className="overview-market-error" role="alert">{marketError}</div>}
+    {!state ? <div className="overview-empty">正在加载自选行情…</div> : !rows.length ? <div className="overview-empty"><p>{market === 'all' ? '尚未添加自选证券' : `尚未添加${WATCH_MARKET_NAMES[market]}自选证券`}</p>
+      <button onClick={() => window.stockBar.openSettings()}>添加自选证券</button></div> : <div className="overview-table-scroll" ref={scroll} tabIndex={0} aria-label={`${WATCH_MARKET_NAMES[market]}自选行情列表`}>
       <table className="overview-table" aria-label="自选证券、最新价与涨跌幅">
         <tbody>{rows.map(row => <tr key={row.symbol} data-symbol={row.symbol}>
           <th scope="row"><span className="overview-name">{row.name}</span><span className="overview-meta"><span className="overview-symbol">{row.symbol}</span>
@@ -100,6 +134,7 @@ function Overview({ state }: { state?: StockState }) {
 }
 
 function Settings({ state }: { state?: StockState }) {
+  const [listMarket, setListMarket] = useState<WatchMarket>('all');
   const [host, setHost] = useState('127.0.0.1'); const [port, setPort] = useState('33333');
   const [ssl, setSsl] = useState(false); const [key, setKey] = useState(''); const [remember, setRemember] = useState(false);
   const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false);
@@ -117,6 +152,7 @@ function Settings({ state }: { state?: StockState }) {
   const task = async (operation: () => Promise<void>) => { setBusy(true); setMessage(''); try { await operation(); } catch (error) { setMessage(error instanceof Error ? error.message : '操作失败'); } finally { setBusy(false); } };
   const saveList = async (items: WatchItem[]) => { const result = await window.stockBar.setWatchlist(items); if (!result.ok) throw new Error(result.message); };
   const list = state?.preferences.watchlist || [];
+  const visibleList = marketItems(list, listMarket);
   return <main className="settings-page"><header><div><p className="eyebrow">STOCK BAR</p><h1>设置与自选</h1></div><div className="settings-header-actions"><span className={`state-pill ${state?.connection}`}>{connectionText(state)}</span>
       <button className="overview-entry" onClick={() => window.stockBar.openOverview()}>查看行情</button></div></header>
     <p className="connection-detail" role="status">{state?.message || '加载设置…'}</p>
@@ -146,9 +182,13 @@ function Settings({ state }: { state?: StockState }) {
         if (!result.ok) throw new Error(result.message); setKey(''); setMessage('已应用连接设置，正在连接行情服务');
       })}>应用并连接</button><span className="muted">密钥不会返回到页面或写入明文文件。</span></div></>}
     </section>
-    <section><div className="section-heading"><h2>自选证券</h2><span className="muted watchlist-count">共 {list.length} 只，悬浮条展示 {barItems(list).length} 只</span></div>
-      <Watchlist items={list} busy={busy} onChange={items => void task(async () => {
-        await saveList(items); setMessage('自选列表已保存');
+    <section><div className="section-heading"><h2>自选证券</h2><span className="muted watchlist-count">{listMarket === 'all' ? '共' : WATCH_MARKET_NAMES[listMarket]} {visibleList.length} 只，悬浮条展示 {barItems(visibleList).length} 只</span></div>
+      <nav className="watchlist-markets" aria-label="管理自选市场">
+        {WATCH_MARKETS.map(market => <button key={market} aria-pressed={listMarket === market} disabled={busy}
+          onClick={() => setListMarket(market)}>{WATCH_MARKET_NAMES[market]}</button>)}
+      </nav>
+      <Watchlist key={listMarket} items={visibleList} busy={busy} onChange={items => void task(async () => {
+        await saveList(mergeMarketWatchlist(list, listMarket, items)); setMessage('自选列表已保存');
       })} />
     </section>
     <section><h2>添加证券</h2>

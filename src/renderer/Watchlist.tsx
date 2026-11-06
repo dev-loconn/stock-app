@@ -15,11 +15,11 @@ export function Watchlist({ items, busy, onChange }: {
     return { symbol, edge: event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after' };
   };
   return <>
-    <p className="muted watchlist-hint" id="watchlist-drag-hint">{items.length ? '勾选后在悬浮条显示；拖动左侧手柄调整顺序。修改后自动保存。' : '尚未添加自选证券，可在下方搜索添加。'}</p>
+    <p className="muted watchlist-hint" id="watchlist-drag-hint">{items.length ? '勾选后在悬浮条显示；拖动手柄或点击“移到最前”调整当前分组顺序。修改后自动保存。' : '当前分组暂无自选证券，可在下方搜索添加。'}</p>
     <ul className="watchlist" aria-label="自选证券列表" tabIndex={items.length ? 0 : undefined} aria-busy={busy} onDragLeave={event => {
       if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setTarget(null);
     }}>
-      {items.map(item => <li key={item.symbol} data-symbol={item.symbol}
+      {items.map((item, index) => <li key={item.symbol} data-symbol={item.symbol}
         className={[dragging === item.symbol ? 'is-dragging' : '', target?.symbol === item.symbol ? `drop-${target.edge}` : ''].filter(Boolean).join(' ')}
         onDragOver={event => {
           if (busy || !source.current) return;
@@ -43,7 +43,10 @@ export function Watchlist({ items, busy, onChange }: {
           }} onDragEnd={clear}>⠿</button>
         <div className="watchlist-security"><strong>{item.name}</strong><span>{item.symbol}</span></div>
         <div className="list-actions"><label className="bar-selection"><input type="checkbox" checked={item.showInBar !== false} disabled={busy}
-          aria-label={`在悬浮条显示 ${item.name} ${item.symbol}`} onChange={event => onChange(items.map(existing => existing.symbol === item.symbol ? { ...existing, showInBar: event.target.checked } : existing))} />显示在悬浮条</label><button className="remove" disabled={busy}
+          aria-label={`在悬浮条显示 ${item.name} ${item.symbol}`} onChange={event => onChange(items.map(existing => existing.symbol === item.symbol ? { ...existing, showInBar: event.target.checked } : existing))} />显示在悬浮条</label>
+          <button className="move-first" disabled={busy || index === 0} aria-label={`移到最前 ${item.name} ${item.symbol}`}
+            onClick={() => onChange(reorderWatchlist(items, item.symbol, { symbol: items[0].symbol, edge: 'before' }))}>移到最前</button>
+          <button className="remove" disabled={busy}
           aria-label={`移除自选 ${item.name} ${item.symbol}`} onClick={() => setRemoving(item.symbol)}>移除自选</button></div>
         {removing === item.symbol && <div className="watchlist-confirm" role="alert">确认移除这只自选证券？
           <button disabled={busy} onClick={() => { setRemoving(undefined); onChange(items.filter(existing => existing.symbol !== item.symbol)); }}>确认移除</button>
