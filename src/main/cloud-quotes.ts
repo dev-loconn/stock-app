@@ -44,14 +44,16 @@ export class CloudQuoteService {
     }
   }
   state(keySaved: boolean): StockState {
+    const cloud = this.auth.state();
     for (const row of this.rows.values()) {
       const selected = selectQuote(this.books.get(row.symbol)!, row.marketState, this.now());
       row.quote = selected.quote; row.marketLabel = selected.status;
-      row.status = row.error ? '云端行情异常' : row.quote ? selected.status + (this.snapshots.has(row.symbol) ? ' · 快照' : '') : '等待行情';
+      row.status = cloud.status === 'signedOut' ? '请登录富途' : row.error ? '云端行情异常'
+        : row.quote ? selected.status + (this.snapshots.has(row.symbol) ? ' · 快照' : '') : '等待行情';
     }
     return { preferences: structuredClone(this.preferences), connection: this.connection, message: this.message,
       retryAt: this.retryAt, rows: this.preferences.watchlist.map(item => structuredClone(this.rows.get(item.symbol)!)),
-      keySaved, keyInSession: false, updatedAt: Date.now(), cloud: this.auth.state() };
+      keySaved, keyInSession: false, updatedAt: Date.now(), cloud };
   }
   diagnostics() { return { server: undefined, basicSubscriptions: this.subscriptions.size, extendedSubscriptions: this.tickerSubscriptions.size }; }
   configure(preferences: Preferences, _key: string, connect = true) {

@@ -126,15 +126,16 @@ export class CloudAuth {
     const revision = this.revision; const refreshToken = this.refreshToken;
     const task = this.request('/oauth2/token', { body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken, client_id: this.clientId }) })
       .then(data => this.accept(data, revision)).catch(async error => {
-        if (revision === this.revision && error instanceof CloudError && error.loginRequired) await this.logout();
+        if (revision === this.revision && error instanceof CloudError && error.loginRequired) await this.clearAuthorization(error.message);
         throw error;
       }).finally(() => { if (this.pendingRefresh === task) this.pendingRefresh = undefined; });
     this.pendingRefresh = task; return task;
   }
-  async logout(): Promise<void> {
+  logout(): Promise<void> { return this.clearAuthorization('已退出云端登录，本机授权凭证已移除'); }
+  private async clearAuthorization(message: string): Promise<void> {
     this.cancelLogin(); this.revision++; this.pendingRefresh = undefined;
     this.accessToken = ''; this.refreshToken = ''; this.expiresAt = 0; this.encryptedRefresh = undefined; this.remembered = false;
-    this.message = '已退出云端登录，本机授权凭证已移除'; await this.save(); this.publish();
+    this.message = message; await this.save(); this.publish();
   }
   stop(): void { this.cancelLogin(); this.revision++; this.accessToken = ''; this.refreshToken = ''; }
 }

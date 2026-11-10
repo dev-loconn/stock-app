@@ -150,6 +150,31 @@ it('does not retry a signed-out cloud session or expose OpenD keys in cloud stat
   expect(calls).toBe(0); service.stop();
 });
 
+it('prompts for login when a saved cloud authorization expires', async () => {
+  const temp = await temporary(); const { writeFile } = await import('node:fs/promises');
+  const message = '云端授权已失效，请重新登录富途';
+  const request: CloudRequest = async (path, options) => {
+    expect(path).toBe('/oauth2/token');
+    if (!(options?.body instanceof URLSearchParams)) throw Error('Expected form');
+    expect(options.body.get('grant_type')).toBe('refresh_token');
+    throw new CloudError(message, 'invalid_grant', true);
+  };
+  const auth = new CloudAuth(temp.file, cipher, request, async () => undefined, () => undefined);
+  const preferences = { ...DEFAULT_PREFERENCES, watchlist: [{ symbol: 'US.SOXL', name: 'SOXL', securityType: 4 }] };
+  const service = new CloudQuoteService(preferences, () => undefined, auth, request, async () => { throw Error('must not connect'); });
+  try {
+    await writeFile(temp.file, JSON.stringify({ clientId: 'fixture-client', encryptedRefresh: cipher.encrypt('fixture-refresh').toString('base64') }));
+    await auth.load();
+    service.configure(preferences, '');
+    await until(() => service.state(false).connection === 'disconnected');
+    expect(service.state(false)).toMatchObject({
+      connection: 'disconnected', message, retryAt: undefined,
+      rows: [{ status: '请登录富途', quote: undefined }],
+      cloud: { status: 'signedOut', remembered: false, message },
+    });
+  } finally { service.stop(); auth.stop(); await temp.cleanup(); }
+});
+
 it('keeps large watchlists and selections on a quota failure, then recovers all quotes without reconnecting for selection changes', async () => {
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await new Promise<void>(done => server.once('listening', done));
