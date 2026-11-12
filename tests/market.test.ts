@@ -1,3 +1,4 @@
+import { util } from 'protobufjs';
 import { describe, expect, it } from 'vitest';
 import { applyBasic, applyTrades, marketDate, selectQuote, sourceEpoch, type QuoteBook } from '../src/main/market';
 import { BAR_CHROME_WIDTH, barItems, barWidth, formatChange, pageSize, validateAppearance, DEFAULT_PREFERENCES } from '../src/shared/stock';
@@ -32,6 +33,20 @@ describe('quote session selection and calculation', () => {
 
     applyTrades(value, [{ price: 44.74, time: '2026-11-06 04:25:09', type: 21 }], 8, preNow, preNow);
     expect(selectQuote(value, 8, preNow).quote?.price).toBe(44.74);
+  });
+  it('keeps the newer OpenD pre-market trade when a replay shares its timestamp', () => {
+    const value = book();
+    const preNow = Date.parse('2026-11-12T09:00:01Z');
+    const time = '2026-11-12 04:00:00.363';
+    const earlier = { time, price: 164.06, sequence: util.Long.fromString('7707220608244776988') };
+    const latest = { time, price: 164.05, sequence: util.Long.fromString('7707220608244776994') };
+
+    applyTrades(value, [earlier], 8, preNow, preNow);
+    expect(selectQuote(value, 8, preNow).quote?.price).toBe(164.06);
+    applyTrades(value, [latest], 8, preNow, preNow);
+    expect(selectQuote(value, 8, preNow).quote?.price).toBe(164.05);
+    applyTrades(value, [earlier], 8, preNow, preNow);
+    expect(selectQuote(value, 8, preNow).quote?.price).toBe(164.05);
   });
   it('uses same-day regular close for after-hours, never previous-day close', () => {
     const value = book(); applyBasic(value, basic(100, 90), now);

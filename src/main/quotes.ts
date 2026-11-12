@@ -187,24 +187,30 @@ export class QuoteService {
     const global = await client.request('GetGlobalState', { userID: 0 }, signal);
     if (!active()) return;
     if (global.qotLogined !== true) throw new Error('OpenD 行情服务器未登录，请在官方程序完成登录');
-    this.serverVersion = { serverVer: number(global.serverVer), serverBuildNo: number(global.serverBuildNo) };
     const time = Number(String(global.time));
-    if (Number.isFinite(time) && time > 0) { this.serverEpoch = time * 1000; this.clockAt = performance.now(); }
-    for (const row of this.rows.values()) row.marketState = number(row.symbol.startsWith('HK.') ? global.marketHK : global.marketUS);
+    const clockAt = performance.now();
+    const marketStates = new Map<string, number>();
     if (this.rows.size) {
       try {
         const states = await client.request('GetMarketState', { securityList: [...this.rows.keys()].map(security) }, signal);
-        if (!active()) return;
         for (const entry of list(states.marketInfoList)) {
-          const value = object(entry); const row = this.rows.get(symbolOf(value.security) || '');
-          if (row) {
-            row.marketState = number(value.marketState);
-            if (desiredSession(row.symbol, row.marketState) === 'regular' && row.error?.startsWith('扩展时段')) row.error = undefined;
-          }
+          const value = object(entry);
+          const symbol = symbolOf(value.security);
+          const state = number(value.marketState);
+          if (symbol && state !== undefined) marketStates.set(symbol, state);
         }
       } catch { /* Global market states are still source-supplied; no local clock inference. */ }
     }
-    if (active()) this.emit();
+    if (!active()) return;
+    this.serverVersion = { serverVer: number(global.serverVer), serverBuildNo: number(global.serverBuildNo) };
+    if (Number.isFinite(time) && time > 0) { this.serverEpoch = time * 1000; this.clockAt = clockAt; }
+    // A quote push can publish while the per-security request is in flight.
+    // Apply the resolved state once so a temporary global state stays invisible.
+    for (const row of this.rows.values()) {
+      row.marketState = marketStates.get(row.symbol) ?? number(row.symbol.startsWith('HK.') ? global.marketHK : global.marketUS);
+      if (desiredSession(row.symbol, row.marketState) === 'regular' && row.error?.startsWith('扩展时段')) row.error = undefined;
+    }
+    this.emit();
   }
   private async snapshots(client: OpenDClient, signal: AbortSignal, active: () => boolean): Promise<void> {
     if (!active() || !this.snapshotSymbols.size) return;

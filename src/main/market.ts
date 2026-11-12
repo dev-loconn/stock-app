@@ -2,7 +2,7 @@ import { SESSION_LABEL, type DisplayQuote, type Session } from '../shared/stock'
 import { number, object, string } from './sdk';
 
 export interface BasicTick { price?: number; previousClose?: number; epoch?: number; text?: string; spread?: number; suspended: boolean }
-export interface Trade { price: number; epoch: number; text: string; receivedAt: number; baseline?: number }
+export interface Trade { price: number; epoch: number; text: string; receivedAt: number; baseline?: number; sequence?: bigint }
 export interface QuoteBook {
   symbol: string; basic?: BasicTick; basicReceivedAt?: number;
   pre?: Trade; after?: Trade; overnight?: Trade; last?: DisplayQuote;
@@ -93,14 +93,19 @@ export function applyTrades(book: QuoteBook, values: unknown[], state: number | 
       if (sameDayRegular ? epoch <= book.basic!.epoch! : minutes < 960) continue;
     }
     const previous = book[session];
-    if (!previous || epoch >= previous.epoch) {
-      const hasPeriodBaseline = previous && sessionDate(session, previous.epoch, zone) === date && 'baseline' in previous;
-      const baseline = hasPeriodBaseline ? previous.baseline : regularBaseline(book, session, epoch);
-      // QUOTE and TICKER share the same period book. Keep its confirmed close
-      // (including an explicitly unknown close) when either feed updates price.
-      book[session] = { price, epoch, text: string(data.time) || '', receivedAt,
-        ...(hasPeriodBaseline || session === 'overnight' ? { baseline } : {}) };
-    }
+    if (previous && epoch < previous.epoch) continue;
+    // OpenD uses a 64-bit sequence. Preserve its precision for trades at the same source time.
+    const rawSequence = data.sequence;
+    const sequenceText = typeof rawSequence === 'number' && !Number.isSafeInteger(rawSequence) ? '' : String(rawSequence);
+    const sequence = /^-?\d{1,19}$/.test(sequenceText) ? BigInt(sequenceText) : undefined;
+    if (previous?.epoch === epoch && previous.sequence !== undefined && sequence !== undefined && sequence <= previous.sequence) continue;
+
+    const hasPeriodBaseline = previous && sessionDate(session, previous.epoch, zone) === date && 'baseline' in previous;
+    const baseline = hasPeriodBaseline ? previous.baseline : regularBaseline(book, session, epoch);
+    // QUOTE and TICKER share the same period book. Keep its confirmed close
+    // (including an explicitly unknown close) when either feed updates price.
+    book[session] = { price, epoch, text: string(data.time) || '', receivedAt, sequence,
+      ...(hasPeriodBaseline || session === 'overnight' ? { baseline } : {}) };
   }
 }
 function regularBaseline(book: QuoteBook, session: Session, epoch: number): number | undefined {

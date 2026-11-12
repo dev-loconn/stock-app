@@ -103,6 +103,44 @@ it('switches OpenD from extended-hours to overnight subscriptions and preserves 
   } finally { service.stop(); await gateway.close(); }
 });
 
+it('keeps the pre-market quote while OpenD reports a stale global overnight state', async () => {
+  const options: GatewayOptions = {
+    usState: 37, serverNow: Date.parse('2026-11-12T08:59:59Z'),
+    basicTime: '2026-11-11 16:00:00', tickerTime: '2026-11-12 03:59:58',
+  };
+  const gateway = await createGateway(options);
+  const preferences = { ...DEFAULT_PREFERENCES, port: gateway.port, watchlist: [{ symbol: 'US.SOXL', name: 'SOXL', securityType: 4 }] };
+  const publishedPrices: Array<number | undefined> = [];
+  const service = new QuoteService(preferences, () => { publishedPrices.push(row().quote?.price); }, { pollMs: 50, retryMs: [50] });
+  const row = () => service.state(false).rows[0];
+  const marketStateRequests = () => gateway.calls.filter(call => call.cmd === 3223).length;
+  let releaseMarketState: (() => void) | undefined;
+  try {
+    service.configure(preferences, '');
+    await until(() => row().quote?.session === 'overnight');
+    const overnight = row().quote?.price;
+
+    options.usState = 8;
+    options.serverNow = Date.parse('2026-11-12T09:00:01Z');
+    options.tickerTime = '2026-11-12 04:00:00';
+    options.tickerPrice = 105;
+    await until(() => row().quote?.session === 'pre');
+    const pre = row().quote?.price;
+
+    const before = marketStateRequests();
+    options.marketStateGate = new Promise(resolve => { releaseMarketState = resolve; });
+    options.globalUsState = 37;
+    await until(() => marketStateRequests() > before);
+    const published = publishedPrices.length;
+    gateway.pushQuotes([{ market: 11, code: 'SOXL' }], 100);
+    await until(() => publishedPrices.length > published);
+    const pending = publishedPrices.at(-1);
+    releaseMarketState?.();
+    await until(() => row().marketState === 8);
+    expect([overnight, pre, pending, row().quote?.price]).toEqual([103, 105, 105, 105]);
+  } finally { releaseMarketState?.(); service.stop(); await gateway.close(); }
+});
+
 it('recovers a transient subscription failure without reconnecting healthy securities', async () => {
   const gateway = await createGateway({ failSubscriptions: 1 });
   const preferences = { ...DEFAULT_PREFERENCES, port: gateway.port, watchlist: [

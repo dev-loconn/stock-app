@@ -12,7 +12,12 @@ const names: Record<number, string> = {
 type RecordValue = Record<string, unknown>;
 interface Security { market: number; code: string }
 export interface FixtureSecurity { symbol: string; name: string; securityType: number; delisting?: boolean }
-export interface GatewayOptions { rejectKey?: string; deniedCode?: string; disconnect?: boolean; bmp?: boolean; usState?: number; failSubscriptions?: number; silentCommands?: number[]; directoryItems?: FixtureSecurity[]; invalidCode?: string; serverNow?: number; basicTime?: string; tickerTime?: string }
+export interface GatewayOptions {
+  rejectKey?: string; deniedCode?: string; disconnect?: boolean; bmp?: boolean;
+  usState?: number; globalUsState?: number; marketStateGate?: Promise<void>;
+  failSubscriptions?: number; silentCommands?: number[]; directoryItems?: FixtureSecurity[]; invalidCode?: string;
+  serverNow?: number; basicTime?: string; tickerTime?: string; tickerPrice?: number;
+}
 
 // Protocol fixture only: it is never used by the application or recorded as real OpenD evidence.
 export async function createGateway(options: GatewayOptions = {}) {
@@ -43,7 +48,7 @@ export async function createGateway(options: GatewayOptions = {}) {
     connections++;
     const connection = connections;
     if (!accepting) { socket.close(); return; }
-    socket.on('message', raw => {
+    socket.on('message', async raw => {
       const packet = Buffer.from(raw as Buffer);
       const cmd = packet.readUInt32BE(8);
       const section = packet.readBigUInt64BE(12);
@@ -55,7 +60,7 @@ export async function createGateway(options: GatewayOptions = {}) {
       if (cmd === 1) {
         if (options.rejectKey) send(socket, cmd, section, { retType: -1, retMsg: `rejected ${options.rejectKey}` });
         else reply({ connID: 123, serverTime: 1792749600 });
-      } else if (cmd === 1002) reply({ marketHK: 6, marketUS: options.usState || 3, marketSH: 6, marketSZ: 6, marketHKFuture: 6,
+      } else if (cmd === 1002) reply({ marketHK: 6, marketUS: options.globalUsState ?? options.usState ?? 3, marketSH: 6, marketSZ: 6, marketHKFuture: 6,
         qotLogined: true, trdLogined: false, serverVer: 1011, serverBuildNo: 7108, time: options.serverNow ? options.serverNow / 1000 : options.usState === 10 ? Date.parse('2026-10-23T20:01:00Z') / 1000 : 1792749600 });
       else if (cmd === 1005) reply({ hkQotRight: options.bmp ? 1 : 2, usQotRight: 2, subQuota: 100,
         nickName: 'MUST NOT APPEAR', userID: 987654321, webKey: 'MUST NOT APPEAR' });
@@ -71,7 +76,10 @@ export async function createGateway(options: GatewayOptions = {}) {
           .map(item => ({ security: { market: item.symbol.startsWith('HK.') ? 1 : 11, code: item.symbol.slice(3) }, name: item.name, secType: item.securityType, delisting: item.delisting }));
         reply({ staticInfoList: entries.map(basic => ({ basic: { ...basic, id: 1, lotSize: 1, listTime: '2000-01-01' } })) });
       }
-      else if (cmd === 3223) reply({ marketInfoList: (request.c2s.securityList as Security[]).map(security => ({ security, name: 'FIXTURE ONLY', marketState: security.market === 11 ? options.usState || 3 : 3 })) });
+      else if (cmd === 3223) {
+        if (options.marketStateGate) await options.marketStateGate;
+        reply({ marketInfoList: (request.c2s.securityList as Security[]).map(security => ({ security, name: 'FIXTURE ONLY', marketState: security.market === 11 ? options.usState ?? 3 : 3 })) });
+      }
       else if (cmd === 3001) {
         const security = (request.c2s.securityList as Security[])[0];
         if (failures > 0) { failures--; send(socket, cmd, section, { retType: -1, retMsg: '行情服务暂不可用，请重试' }); }
@@ -84,7 +92,10 @@ export async function createGateway(options: GatewayOptions = {}) {
         }
       } else if (cmd === 3004) reply({ basicQotList: (request.c2s.securityList as Security[]).map(quote) });
       else if (cmd === 3203) reply({ snapshotList: (request.c2s.securityList as Security[]).map(security => ({ basic: { ...quote(security), type: 3, isSuspend: false, lotSize: 1 } })) });
-      else if (cmd === 3010) reply({ security: request.c2s.security, tickerList: [{ time: options.tickerTime || '2026-10-23 16:00:59', sequence: 1, dir: 0, price: 103, volume: 1, turnover: 103 }] });
+      else if (cmd === 3010) {
+        const price = options.tickerPrice ?? 103;
+        reply({ security: request.c2s.security, tickerList: [{ time: options.tickerTime || '2026-10-23 16:00:59', sequence: 1, dir: 0, price, volume: 1, turnover: price }] });
+      }
     });
   });
   return {
